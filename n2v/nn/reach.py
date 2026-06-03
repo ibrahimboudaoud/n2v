@@ -286,6 +286,25 @@ def _handle_graphmodule(
                     # Don't set current_sets — outputs are extracted by getitem
                     continue
 
+            # Handle OnnxFunction (generic element-wise ops from onnx2torch, e.g. Tanh)
+            if module_type == 'OnnxFunction':
+                fn = getattr(module, 'function', None)
+                _fn_to_mod = {torch.tanh: nn.Tanh, torch.sigmoid: nn.Sigmoid,
+                              F.relu: nn.ReLU, torch.relu: nn.ReLU}
+                equiv_cls = _fn_to_mod.get(fn)
+                if equiv_cls is not None:
+                    first_arg = node.args[0]
+                    if hasattr(first_arg, 'name') and first_arg.name in node_values:
+                        input_sets_op = node_values[first_arg.name]
+                        layer_kwargs = dict(kwargs)
+                        if layer_bounds is not None and node.name in layer_bounds:
+                            layer_kwargs['precomputed_bounds'] = layer_bounds[node.name]
+                        else:
+                            layer_kwargs.pop('precomputed_bounds', None)
+                        current_sets = reach_layer(equiv_cls(), input_sets_op, method, **layer_kwargs)
+                        node_values[node.name] = current_sets
+                        continue
+
             # Handle ONNX-specific operations
             if module_type == 'OnnxBinaryMathOperation':
                 current_sets = _handle_onnx_binary_op(
