@@ -1076,7 +1076,16 @@ def _mul_stars_mccormick(sa: 'Star', sb: 'Star', lp_solver: str = 'default') -> 
         sb_pred_lb = sb.predicate_lb
         sb_pred_ub = sb.predicate_ub
 
-    # Get bounds for both operands via LP
+    # Get bounds for both operands via LP; fall back to estimated ranges if LP fails.
+    # Estimated ranges (from predicate bounds only, ignoring C/d constraints) are a
+    # sound over-approximation, so McCormick remains valid — just looser.
+    est_lb_a, est_ub_a = sa.estimate_ranges()
+    est_lb_b, est_ub_b = sb.estimate_ranges()
+    est_lb_a = est_lb_a.flatten()
+    est_ub_a = est_ub_a.flatten()
+    est_lb_b = est_lb_b.flatten()
+    est_ub_b = est_ub_b.flatten()
+
     lbs_a = np.zeros(N)
     ubs_a = np.zeros(N)
     lbs_b = np.zeros(N)
@@ -1084,22 +1093,12 @@ def _mul_stars_mccormick(sa: 'Star', sb: 'Star', lp_solver: str = 'default') -> 
 
     for i in range(N):
         lb_val, ub_val = sa.get_range(i, lp_solver)
-        if lb_val is None or ub_val is None:
-            raise ValueError(
-                f"LP solver returned None for dimension {i} of first operand. "
-                f"Star may be infeasible."
-            )
-        lbs_a[i] = lb_val
-        ubs_a[i] = ub_val
+        lbs_a[i] = lb_val if lb_val is not None else est_lb_a[i]
+        ubs_a[i] = ub_val if ub_val is not None else est_ub_a[i]
 
         lb_val, ub_val = sb.get_range(i, lp_solver)
-        if lb_val is None or ub_val is None:
-            raise ValueError(
-                f"LP solver returned None for dimension {i} of second operand. "
-                f"Star may be infeasible."
-            )
-        lbs_b[i] = lb_val
-        ubs_b[i] = ub_val
+        lbs_b[i] = lb_val if lb_val is not None else est_lb_b[i]
+        ubs_b[i] = ub_val if ub_val is not None else est_ub_b[i]
 
     a, b = lbs_a, ubs_a  # bounds on x
     c, d = lbs_b, ubs_b  # bounds on y
