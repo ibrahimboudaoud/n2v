@@ -34,9 +34,9 @@ Instances are **pre-screened**: only test inputs where `ibp_certify(model_small,
 
 Why h8 specifically? The small model (8 hidden units) has narrow weight matrices — the intervals spread less per timestep, so IBP remains tight enough to certify. The large h64 model has 64-dimensional hidden state; even at ε=0.005, interval blowup from 64 × 14 = 896 sigmoid/tanh applications makes IBP non-certifying for almost any test input.
 
-### 2.2 ε ≈ 0.018–0.025 — SAT instances (h64 model)
+### 2.2 ε ≈ 0.022 (effectively fixed) — SAT instances (h64 model)
 
-The SAT epsilon is **not a fixed constant**. It is computed per instance by `find_sat_instance()` at `generate.py:373`:
+The SAT epsilon is **effectively fixed** at `eps = 1.1 × delta = 0.022` (verified range 0.021996–0.022001 across all 25 instances; 9 distinct values; spread 4.25 × 10⁻⁵). It is computed per instance by `find_sat_instance()` at `generate.py:373`, but the boundary search converges to the same radius for all instances:
 
 ```
 eps = 1.1 × L∞(x_test, boundary_point)
@@ -49,7 +49,7 @@ The geometry:
 4. Step `delta=0.02` further into the correct class from `a` to get `x_test`
 5. Set `eps = 1.1 × L∞(x_test, b)` — the ball spans the boundary and contains the witness `b`
 
-The 10% margin (×1.1) ensures the wrong-class witness is comfortably inside the ball, not just touching it. The per-instance values typically land between 0.018 and 0.025, with the empirical average around 0.022 across the 25 SAT instances actually generated.
+The 10% margin (×1.1) ensures the wrong-class witness is comfortably inside the ball, not just touching it. After 50 bisections the boundary is located to precision ≈ L∞(x0, x1) / 2⁵⁰ ≈ 0, so `L∞(x_test, b) ≈ delta = 0.02` for all instances, giving `eps = 1.1 × 0.02 = 0.022`. The tight range [0.021996, 0.022001] was confirmed by VERIFY_v2.md Task 4.
 
 All inputs are Z-score normalized (standard MNIST normalization with mean=0.1307, std=0.3081), so these ε values are in normalized pixel space, not raw [0,1] space.
 
@@ -164,4 +164,4 @@ Run α,β-CROWN or Marabou against all 50 instances and confirm all 25 UNSAT lab
 | Model | ε | How chosen | Verification method |
 |---|---|---|---|
 | h8 (UNSAT) | **0.005** | Fixed constant; tightest ball certifiable by IBP across 14 timesteps | IBP (`ibp_certify()`) → UNSAT |
-| h64 (SAT) | **0.018–0.025 per-instance** (avg ≈ 0.022) | `1.1 × L∞(x_test, boundary)` from 50-bisection boundary search | Concrete witness → SAT by construction |
+| h64 (SAT) | **0.022 (effectively fixed)**; range 0.021996–0.022001 | `1.1 × delta` where delta=0.02; boundary search converges to same radius for all 25 instances | Concrete witness → SAT by construction |

@@ -160,6 +160,15 @@ structurally guaranteed by the generation code which builds `unsat_indices` and 
 from the same `pairs` list. The L∞ proximity check is informative but not the ground truth
 for pairing when large boundary distances are involved.
 
+**Correctness note (props 027, 041, 043)**: These three exceptions are **correct-by-construction**
+and require no remediation. The large L∞ drift from the source image is an expected consequence
+of the h64 boundary geometry for those specific class-6 digits: in 392-dimensional Z-score space
+the nearest wrong-class neighbor is far from the source image, so the 50-step bisection converges
+to a boundary point deep inside that high-dimensional space. The `true_cls` match (class 6 for all
+three) is preserved, and the shared-pool invariant (`unsat_indices == sat_indices`) is structurally
+enforced by `generate.py`. The SAT labels are independently confirmed by concrete witnesses
+(Task 2 above).
+
 ---
 
 ## Task 4 — SAT epsilon values

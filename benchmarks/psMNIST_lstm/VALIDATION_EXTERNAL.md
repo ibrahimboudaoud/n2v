@@ -21,9 +21,10 @@ The tool requires a dedicated setup from its GitHub repository
 (`https://github.com/Verified-Intelligence/alpha-beta-CROWN`) with a custom conda environment
 and a complex YAML-based configuration system. This setup was not attempted because
 **auto_LiRPA** — the bound-propagation library that alpha-beta-CROWN is built on — is
-available as a standalone package and provides CROWN bounds directly. CROWN is the core
-computational primitive of alpha-beta-CROWN; using it directly is equivalent for the
-verification task here.
+available as a standalone package and provides CROWN bounds directly. The tool used is
+auto_LiRPA 0.7.2, CROWN mode — the sound bound-propagation core of alpha-beta-CROWN. The full
+alpha-beta-CROWN wrapper (alpha-optimization + branch-and-bound) was not run, but is unnecessary
+here given the minimum margin of +1.455.
 
 ### Fallback tool used: auto_LiRPA (CROWN method)
 
