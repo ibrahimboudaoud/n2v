@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-psMNIST_lstm — VNN-COMP 2026 benchmark generator.
+psMNIST_lstm — VNN-COMP 2026 benchmark generator (v2 shared-image-pool design).
 
 Permuted Sequential MNIST (psMNIST) is the LSTM equivalent of the classic
 MNIST feedforward benchmark.  Every verifier in VNN-COMP has an MNIST
@@ -9,7 +9,7 @@ feed-forward entry; this provides the recurrent counterpart.
 How it works:
   - Take an MNIST image (28x28 = 784 pixels)
   - Apply a FIXED random permutation to the flattened pixels
-  - Feed the permuted sequence row-by-row: 28 timesteps x 28 features
+  - Feed the permuted sequence row-by-row: 14 timesteps x 28 features
   - An LSTM classifies into 10 digit classes (0-9)
 
 Why psMNIST instead of plain sMNIST?
@@ -23,14 +23,20 @@ Verification property (same structure as ACAS Xu robustness):
     SAT  = there exists x' in [x*-eps, x*+eps] where a wrong digit wins
     UNSAT = for every x' in the ball, the correct digit always wins
 
-Pipeline stages this script exercises end-to-end:
+Shared-image-pool design (v2):
+  A single pool of N_POOL source images is drawn from the test set.
+  Each source image produces exactly one UNSAT instance (h8, EPS_UNSAT)
+  and one SAT instance (h64, per-instance boundary-search epsilon).
+  Only (model, epsilon) vary between the two halves — image identity is
+  held constant, removing the confound present in the v1 design.
+
+Pipeline stages:
   1. Real data loading (MNIST via torchvision)
-  2. LSTM training
+  2. LSTM training (two models)
   3. ONNX export + cleanup (Identity removal, constant folding)
-  4. VNN-LIB 2.0 property writing (multi-class disjunction)
-  5. IBP-based UNSAT certification
-  6. Decision-boundary SAT instance construction
-  7. n2v Box reachability verification (dry run)
+  4. Shared pool selection (IBP + boundary-search joint filter)
+  5. VNN-LIB 2.0 property writing (multi-class disjunction)
+  6. n2v Box reachability verification (dry run, all 50 instances)
 
 Usage:
     cd benchmarks/psMNIST_lstm
@@ -70,15 +76,16 @@ EPOCHS       = 40
 BATCH_SIZE   = 256
 LR           = 1e-3
 
-EPS_UNSAT    = 0.005     # L-inf ball radius for UNSAT (tight perturbation)
-TIMEOUT      = 120       # VNN-COMP per-instance timeout (seconds)
+EPS_UNSAT        = 0.005  # L-inf ball radius for UNSAT (IBP-certified on h8)
+SAT_BISECT_STEPS = 50     # number of bisection steps in boundary search
+SAT_DELTA        = 0.02   # step size deeper into true class after bisection
+TIMEOUT          = 120    # VNN-COMP per-instance timeout (seconds)
 
-N_UNSAT      = 25        # target UNSAT instances
-N_SAT        = 25        # target SAT instances
+N_POOL = 25  # source images shared by both UNSAT and SAT halves; total = 2*N_POOL
 
 # Fixed permutation — every run uses the same one (reproducible benchmark)
 _PERM_RNG   = np.random.default_rng(SEED)
-PERMUTATION = _PERM_RNG.permutation(INPUT_DIM)   # shape (784,)
+PERMUTATION = _PERM_RNG.permutation(INPUT_DIM)   # shape (392,)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,8 +99,9 @@ def load_mnist():
     Preprocessing:
       1. Flatten 28x28 image → 784-vector, scale to [0,1]
       2. Apply fixed permutation
-      3. Z-score normalise using training-set statistics
-      4. Return as (N, 784) float32 arrays with integer labels
+      3. Truncate to first INPUT_DIM values
+      4. Z-score normalise using training-set statistics
+      5. Return as (N, INPUT_DIM) float32 arrays with integer labels
     """
     from torchvision import datasets, transforms
 
@@ -106,7 +114,7 @@ def load_mnist():
         imgs   = dataset.data.numpy().astype(np.float32) / 255.0  # (N,28,28)
         labels = dataset.targets.numpy()
         flat   = imgs.reshape(len(imgs), -1)                       # (N,784)
-        perm   = flat[:, PERMUTATION]                              # permute
+        perm   = flat[:, PERMUTATION]                              # permute + truncate
         return perm, labels
 
     X_tr, y_tr = _extract(raw_train)
@@ -153,10 +161,10 @@ class psMNIST_LSTM(nn.Module):
     """
     Unrolled LSTM classifier for permuted sequential MNIST.
 
-    Input  : (1, 784)  — flattened, permuted, normalised pixel sequence
-    Output : (1, 10)   — class logits for digits 0-9
+    Input  : (1, INPUT_DIM)  — flattened, permuted, normalised pixel sequence
+    Output : (1, 10)         — class logits for digits 0-9
 
-    The Python loop over SEQ_LEN=28 is traced by torch.onnx.export into a
+    The Python loop over SEQ_LEN is traced by torch.onnx.export into a
     flat Gemm/Sigmoid/Tanh/Mul/Slice graph.  No ONNX LSTM operator is emitted.
     """
     def __init__(self, hidden_size: int = HIDDEN_LARGE):
@@ -169,7 +177,7 @@ class psMNIST_LSTM(nn.Module):
         self.register_buffer("h0", torch.zeros(1, hidden_size))
         self.register_buffer("c0", torch.zeros(1, hidden_size))
 
-    def forward(self, x_flat):          # x_flat: (1, 784)
+    def forward(self, x_flat):          # x_flat: (1, INPUT_DIM)
         h, c = self.h0, self.c0
         for t in range(SEQ_LEN):
             x_t = x_flat[:, t * INPUT_SIZE : (t + 1) * INPUT_SIZE]
@@ -371,8 +379,9 @@ def ibp_certify(model: nn.Module, x: np.ndarray, eps: float,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def find_sat_instance(model: nn.Module, x0: np.ndarray, c0: int,
-                      x1_pool: np.ndarray, n_bisect: int = 50,
-                      delta: float = 0.02) -> tuple:
+                      x1_pool: np.ndarray,
+                      n_bisect: int = SAT_BISECT_STEPS,
+                      delta: float = SAT_DELTA) -> tuple:
     """
     Guarantee a SAT instance by binary-searching for the decision boundary.
 
@@ -384,8 +393,6 @@ def find_sat_instance(model: nn.Module, x0: np.ndarray, c0: int,
 
     The SAT witness is b: it is inside the ball and predicts a wrong class.
     """
-    other = [j for j in range(NUM_CLASSES) if j != c0]
-
     def _pred(z):
         with torch.no_grad():
             return int(model(torch.tensor(z, dtype=torch.float32).unsqueeze(0))
@@ -481,22 +488,21 @@ def write_vnnlib(path: str, x: np.ndarray, eps: float, true_cls: int) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# n2v dry run — Box reachability verification
+# n2v dry run — Box reachability verification (all instances)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_n2v_dryrun(onnx_path, records: list, n_sample: int = 10) -> None:
+def run_n2v_dryrun(records: list) -> None:
     """
-    Run a sample of instances through n2v's Box reachability to confirm labels.
+    Run ALL instances through n2v's Box reachability to confirm labels.
 
     Box (interval arithmetic) is used because:
     - Star-set reachability for LSTMs is still an open problem in n2v
     - Box is sound: if the output Box certifies UNSAT, it is truly UNSAT
     - Box runs in seconds per instance
 
-    For SAT instances, we use n2v's PGD falsification instead of reachability.
+    For SAT instances, PGD falsification is used to recover the witness.
     """
     try:
-        import sys
         sys.path.insert(0, "../..")
         sys.path.insert(0, "../../examples/VNN-COMP")
         from n2v.utils.model_loader import load_onnx
@@ -510,7 +516,7 @@ def run_n2v_dryrun(onnx_path, records: list, n_sample: int = 10) -> None:
         print(f"  [dryrun] Run manually: python ../../examples/VNN-COMP/run_instance.py <onnx> <vnnlib>")
         return
 
-    print(f"\n── n2v dry run ({n_sample} instances) ──────────────────────────")
+    print(f"\n── n2v dry run (all {len(records)} instances) ──────────────────────")
 
     loaded = {}
     def get_model(p):
@@ -518,10 +524,9 @@ def run_n2v_dryrun(onnx_path, records: list, n_sample: int = 10) -> None:
             loaded[p] = load_onnx(p)
         return loaded[p]
 
-    sample = records[:n_sample//2] + records[-n_sample//2:]
-    ok = wrong = 0
+    ok = wrong = errors = 0
 
-    for onnx_r, vnnlib_r, expected, _ in sample:
+    for onnx_r, vnnlib_r, expected, _ in records:
         try:
             model = get_model(onnx_r)
             prop  = load_vnnlib(vnnlib_r)
@@ -545,8 +550,17 @@ def run_n2v_dryrun(onnx_path, records: list, n_sample: int = 10) -> None:
                 wrong += 1
         except Exception as e:
             print(f"  ? {vnnlib_r}: error — {e}")
+            errors += 1
 
-    print(f"\n  dry run: {ok}/{len(sample)} correct  {wrong} wrong")
+    total = len(records)
+    print(f"\n  ── dry run summary ──────────────────────────────────────")
+    print(f"  correct : {ok}/{total}")
+    print(f"  wrong   : {wrong}/{total}")
+    print(f"  errors  : {errors}/{total}")
+    if wrong == 0 and errors == 0:
+        print(f"  PASS — all {total} labels reproduced by n2v Box/PGD")
+    else:
+        print(f"  FAIL — {wrong + errors} label(s) not confirmed")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -569,7 +583,7 @@ def main():
     #
     # Why two? IBP over-approximation in LSTMs compounds with every timestep
     # through the element-wise Mul gates (f*c, o*tanh(c)).  With hidden=64 and
-    # 28 timesteps, the bounds widen too much to certify anything.  hidden=8
+    # 14 timesteps, the bounds widen too much to certify anything.  hidden=8
     # keeps the intermediate values small enough that IBP stays tight.
 
     print(f"\nTraining SMALL model (hidden={HIDDEN_SMALL}) for UNSAT instances …")
@@ -598,86 +612,117 @@ def main():
     export_onnx(model_small, f"onnx/{onnx_small}")
     export_onnx(model_large, f"onnx/{onnx_large}")
 
-    # ── UNSAT: small model, high-confidence, IBP-certified ───────────────────
-    margin_s = logits_s.max(1) - np.partition(logits_s, -2, axis=1)[:, -2]
-    correct_s = preds_s == y_te
-    pool_u    = np.where(correct_s)[0]
-    pool_u    = pool_u[np.argsort(margin_s[pool_u])[::-1]]
+    # ── Build shared image pool ───────────────────────────────────────────────
+    # Candidates: images correctly classified by BOTH models.
+    # The two-model design is necessary: IBP can only certify UNSAT on h8;
+    # h64 gives the reliable decision boundary needed for SAT falsification.
+    # Sorting by h8 logit margin (descending) favours IBP certifiability.
+    margin_s    = logits_s.max(1) - np.partition(logits_s, -2, axis=1)[:, -2]
+    both_correct = (preds_s == y_te) & (preds_l == y_te)
+    candidates   = np.where(both_correct)[0]
+    candidates   = candidates[np.argsort(margin_s[candidates])[::-1]]
 
-    records  = []
-    prop_idx = 0
-    n_unsat  = 0
+    # x1_pool for boundary search: all correctly-classified other-class images on h64
+    correct_l = preds_l == y_te
 
-    print(f"\nGenerating UNSAT instances (small model, eps={EPS_UNSAT}) …")
-    for idx in pool_u:
-        if n_unsat >= N_UNSAT:
+    # Collect paired instances: each entry is (test_idx, x_unsat, x_sat, eps_sat, true_cls)
+    pairs = []
+    print(f"\nBuilding shared image pool (target N_POOL={N_POOL}) …")
+    for idx in candidates:
+        if len(pairs) >= N_POOL:
             break
         x  = X_te[idx]
         tc = int(y_te[idx])
+
+        # UNSAT filter: IBP must certify the h8 model at EPS_UNSAT
         if not ibp_certify(model_small, x, EPS_UNSAT, tc):
             continue
+
+        # SAT filter: boundary search must succeed on h64
+        x1_pool = X_te[np.where((y_te != tc) & correct_l)[0]]
+        result  = find_sat_instance(model_large, x, tc, x1_pool)
+        if result is None:
+            continue
+
+        x_test, eps_sat, true_cls = result
+        pairs.append((int(idx), x, x_test, eps_sat, tc))
+        print(f"  [{len(pairs):2d}/{N_POOL}] test_idx={idx:5d}  cls={tc}"
+              f"  eps_unsat={EPS_UNSAT:.4f}  eps_sat={eps_sat:.4f}")
+
+    if len(pairs) < N_POOL:
+        print(f"\nWARNING: only {len(pairs)}/{N_POOL} pairs found. "
+              f"Try increasing EPOCHS or reducing N_POOL.")
+
+    # ── Write VNN-LIB properties ──────────────────────────────────────────────
+    # Layout: prop_000 … prop_{n-1}  → UNSAT (h8)
+    #         prop_{n}  … prop_{2n-1} → SAT  (h64)
+    # This makes the pairing explicit: image i → prop_i (UNSAT) + prop_{i+N} (SAT)
+    records       = []
+    unsat_indices = []
+    sat_indices   = []
+    prop_idx      = 0
+
+    print(f"\nWriting UNSAT properties (h8, eps={EPS_UNSAT}) …")
+    for (idx, x, x_test, eps_sat, tc) in pairs:
         pname = f"prop_{prop_idx:03d}.vnnlib"
         write_vnnlib(f"vnnlib/{pname}", x, EPS_UNSAT, tc)
         records.append((f"onnx/{onnx_small}", f"vnnlib/{pname}", "unsat", TIMEOUT))
+        unsat_indices.append(idx)
         prop_idx += 1
-        n_unsat  += 1
-        if n_unsat % 5 == 0:
-            print(f"  {n_unsat}/{N_UNSAT} UNSAT certified …")
 
-    print(f"  UNSAT: {n_unsat} instances generated")
+    print(f"Writing SAT properties (h64, per-instance boundary-search eps) …")
+    for (idx, x, x_test, eps_sat, tc) in pairs:
+        pname = f"prop_{prop_idx:03d}.vnnlib"
+        write_vnnlib(f"vnnlib/{pname}", x_test, eps_sat, tc)
+        records.append((f"onnx/{onnx_large}", f"vnnlib/{pname}", "sat", TIMEOUT))
+        sat_indices.append(idx)
+        prop_idx += 1
 
-    # ── SAT: large model, decision-boundary search ────────────────────────────
-    correct_l = preds_l == y_te
-    print(f"\nGenerating SAT instances (large model, boundary search) …")
-    n_sat = 0
-
-    for c0 in range(NUM_CLASSES):
-        if n_sat >= N_SAT:
-            break
-        pool_c0        = X_te[np.where((y_te == c0) & correct_l)[0]]
-        pool_all_other = X_te[np.where((y_te != c0) & correct_l)[0]]
-        if len(pool_c0) == 0 or len(pool_all_other) == 0:
-            continue
-        for x in pool_c0[:N_SAT * 3]:
-            if n_sat >= N_SAT:
-                break
-            result = find_sat_instance(model_large, x, c0, pool_all_other)
-            if result is None:
-                continue
-            x_test, eps, true_cls = result
-            pname = f"prop_{prop_idx:03d}.vnnlib"
-            write_vnnlib(f"vnnlib/{pname}", x_test, eps, true_cls)
-            records.append((f"onnx/{onnx_large}", f"vnnlib/{pname}", "sat", TIMEOUT))
-            prop_idx += 1
-            n_sat    += 1
-
-    print(f"  SAT:   {n_sat} instances generated")
-
-    # ── Write instance files ──────────────────────────────────────────────────
+    # ── Write instance files (Unix LF) ────────────────────────────────────────
     with open("instances.csv", "w", newline="") as f:
-        csv.writer(f).writerows([(r[0], r[1], r[3]) for r in records])
+        csv.writer(f, lineterminator="\n").writerows(
+            [(r[0], r[1], r[3]) for r in records]
+        )
 
     with open("ground_truth.csv", "w", newline="") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")
         w.writerow(["onnx", "vnnlib", "result", "timeout"])
         w.writerows(records)
 
-    total = len(records)
-    print(f"\n{'─'*55}")
+    # ── Summary ───────────────────────────────────────────────────────────────
+    n_unsat = sum(1 for r in records if r[2] == "unsat")
+    n_sat   = sum(1 for r in records if r[2] == "sat")
+    total   = len(records)
+
+    print(f"\n{'─'*60}")
     print(f"Total instances : {total}  ({n_unsat} UNSAT / {n_sat} SAT)")
-    print(f"Models          : onnx/{onnx_small}  (UNSAT)  |  onnx/{onnx_large}  (SAT)")
+    print(f"Models          : onnx/{onnx_small}  (UNSAT, eps={EPS_UNSAT})")
+    print(f"                  onnx/{onnx_large}  (SAT,   eps per boundary search)")
     print(f"Properties      : vnnlib/  ({total} files)")
     print(f"Instance list   : instances.csv")
     print(f"Ground truth    : ground_truth.csv")
 
+    # ── Shared-pool confirmation ──────────────────────────────────────────────
+    print(f"\n{'─'*60}")
+    print(f"Shared image pool verification:")
+    print(f"  UNSAT source image indices (test set): {unsat_indices}")
+    print(f"  SAT  source image indices (test set) : {sat_indices}")
+    assert unsat_indices == sat_indices, (
+        f"BUG: UNSAT and SAT image pools differ!\n"
+        f"  UNSAT: {unsat_indices}\n"
+        f"  SAT:   {sat_indices}"
+    )
+    print(f"  ✓ Both halves draw from the SAME {len(unsat_indices)} source images.")
+    print(f"  ✓ Image identity is held constant; only (model, epsilon) varies.")
+
     if total < 50:
-        print(f"\nWARNING: {total} < 50 — try increasing EPOCHS or reducing EPS_UNSAT.")
+        print(f"\nWARNING: {total} < 50 — benchmark does not meet VNN-COMP minimum.")
     else:
         print(f"\nBenchmark satisfies the ≥50 labeled instance requirement.")
 
-    # ── n2v dry run ───────────────────────────────────────────────────────────
+    # ── n2v dry run — confirm all labels ─────────────────────────────────────
     if records:
-        run_n2v_dryrun(None, records, n_sample=10)
+        run_n2v_dryrun(records)
 
 
 if __name__ == "__main__":
