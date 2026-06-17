@@ -76,7 +76,7 @@ EPOCHS       = 40
 BATCH_SIZE   = 256
 LR           = 1e-3
 
-EPS_UNSAT        = 0.005  # L-inf ball radius for UNSAT (IBP-certified on h8)
+EPS_UNSAT        = 1/255   # L-inf ball radius for UNSAT = 1 pixel level in [0,1] space
 SAT_BISECT_STEPS = 50     # number of bisection steps in boundary search
 SAT_DELTA        = 0.02   # step size deeper into true class after bisection
 TIMEOUT          = 120    # VNN-COMP per-instance timeout (seconds)
@@ -94,14 +94,16 @@ PERMUTATION = _PERM_RNG.permutation(INPUT_DIM)   # shape (392,)
 
 def load_mnist():
     """
-    Download MNIST and return normalised, permuted numpy arrays.
+    Download MNIST and return /255-normalised, permuted numpy arrays.
 
     Preprocessing:
-      1. Flatten 28x28 image → 784-vector, scale to [0,1]
+      1. Flatten 28x28 image → 784-vector, scale to [0,1] (divide by 255)
       2. Apply fixed permutation
       3. Truncate to first INPUT_DIM values
-      4. Z-score normalise using training-set statistics
-      5. Return as (N, INPUT_DIM) float32 arrays with integer labels
+      4. Return as (N, INPUT_DIM) float32 arrays with integer labels
+
+    Inputs live in [0,1].  Epsilon = k/255 means exactly k pixel levels of
+    perturbation, which is the standard VNN-COMP image-benchmark convention.
     """
     from torchvision import datasets, transforms
 
@@ -120,13 +122,7 @@ def load_mnist():
     X_tr, y_tr = _extract(raw_train)
     X_te, y_te = _extract(raw_test)
 
-    # Z-score from training set only
-    mu  = X_tr.mean(axis=0, keepdims=True)
-    sig = X_tr.std(axis=0,  keepdims=True) + 1e-6
-    X_tr = (X_tr - mu) / sig
-    X_te = (X_te - mu) / sig
-
-    return X_tr, y_tr, X_te, y_te, mu, sig
+    return X_tr, y_tr, X_te, y_te
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,6 +204,103 @@ def train(model: nn.Module, X: np.ndarray, y: np.ndarray) -> None:
             with torch.no_grad():
                 acc = (model(Xt).argmax(1) == yt).float().mean().item()
             print(f"    ep {ep:3d}  train_acc={acc:.3f}")
+
+    model.eval()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IBP-regularised training — UNSAT model only
+# ─────────────────────────────────────────────────────────────────────────────
+# Standard inputs ∈ [0,1] produce larger weights than Z-score inputs (mean≈0.13
+# vs 0).  Larger recurrent weights blow up IBP interval expansion through
+# 14 timesteps.  CROWN-IBP / DiffAI-style training fixes this: mix a clean
+# CE loss with a CE loss on the IBP worst-case output, ramping the IBP term
+# from 0 → 1 over training.  This directly penalises non-certifiable behaviour.
+
+def _ibp_forward(model: nn.Module, lb: torch.Tensor, ub: torch.Tensor):
+    """
+    Differentiable batched IBP forward through the unrolled LSTM.
+    lb, ub: (B, INPUT_DIM).  Returns logit_lb, logit_ub: (B, NUM_CLASSES).
+    Uses model parameters directly so gradients flow back.
+    """
+    H      = model.hidden_size
+    B      = lb.shape[0]
+    Wih    = model.cell.Wih.weight    # (4H, input_size)
+    bih    = model.cell.Wih.bias      # (4H,)
+    Whh    = model.cell.Whh.weight    # (4H, H)
+    zero4H = torch.zeros(4 * H)
+    Wc     = model.classifier.weight   # (NUM_CLASSES, H)
+    bc     = model.classifier.bias     # (NUM_CLASSES,)
+
+    h_lb = torch.zeros(B, H)
+    h_ub = torch.zeros(B, H)
+    c_lb = torch.zeros(B, H)
+    c_ub = torch.zeros(B, H)
+
+    for t in range(SEQ_LEN):
+        xt_lb = lb[:, t*INPUT_SIZE:(t+1)*INPUT_SIZE]
+        xt_ub = ub[:, t*INPUT_SIZE:(t+1)*INPUT_SIZE]
+
+        gi_lb, gi_ub = _affine_ibp(Wih, bih,    xt_lb, xt_ub)
+        gh_lb, gh_ub = _affine_ibp(Whh, zero4H,  h_lb,  h_ub)
+        g_lb = gi_lb + gh_lb
+        g_ub = gi_ub + gh_ub
+
+        i_lb  = torch.sigmoid(g_lb[:, :H]);      i_ub  = torch.sigmoid(g_ub[:, :H])
+        f_lb  = torch.sigmoid(g_lb[:, H:2*H]);   f_ub  = torch.sigmoid(g_ub[:, H:2*H])
+        g2_lb = torch.tanh(g_lb[:, 2*H:3*H]);    g2_ub = torch.tanh(g_ub[:, 2*H:3*H])
+        o_lb  = torch.sigmoid(g_lb[:, 3*H:]);    o_ub  = torch.sigmoid(g_ub[:, 3*H:])
+
+        fc_lb, fc_ub = _mul_ibp(f_lb, f_ub, c_lb, c_ub)
+        ig_lb, ig_ub = _mul_ibp(i_lb, i_ub, g2_lb, g2_ub)
+        c_lb = fc_lb + ig_lb
+        c_ub = fc_ub + ig_ub
+
+        tc_lb = torch.tanh(c_lb);  tc_ub = torch.tanh(c_ub)
+        h_lb, h_ub = _mul_ibp(o_lb, o_ub, tc_lb, tc_ub)
+
+    return _affine_ibp(Wc, bc, h_lb, h_ub)
+
+
+def train_ibp(model: nn.Module, X: np.ndarray, y: np.ndarray,
+              eps: float, warm: int = 10) -> None:
+    """
+    IBP-regularised training for the UNSAT model.
+
+    Schedule: clean CE for `warm` epochs, then linearly ramp in IBP loss
+    until epoch EPOCHS (lambda: 0 → 1).  Inputs are clamped to [0,1] for
+    IBP bounds so we never perturb outside the valid pixel range.
+    """
+    opt     = torch.optim.Adam(model.parameters(), lr=LR)
+    ce      = nn.CrossEntropyLoss()
+    Xt      = torch.tensor(X, dtype=torch.float32)
+    yt      = torch.tensor(y, dtype=torch.long)
+    n       = len(Xt)
+    model.train()
+
+    for ep in range(1, EPOCHS + 1):
+        lam  = 0.0 if ep <= warm else (ep - warm) / (EPOCHS - warm)
+        perm = torch.randperm(n)
+        for i in range(0, n, BATCH_SIZE):
+            idx = perm[i:i+BATCH_SIZE]
+            xb, yb = Xt[idx], yt[idx]
+            opt.zero_grad()
+            clean_loss = ce(model(xb), yb)
+            if lam > 0:
+                lb = (xb - eps).clamp(0.0, 1.0)
+                ub = (xb + eps).clamp(0.0, 1.0)
+                l_lb, l_ub = _ibp_forward(model, lb, ub)
+                worst = l_ub.clone()
+                worst[torch.arange(len(yb)), yb] = l_lb[torch.arange(len(yb)), yb]
+                loss = clean_loss + lam * ce(worst, yb)
+            else:
+                loss = clean_loss
+            loss.backward()
+            opt.step()
+        if ep % 10 == 0 or ep == EPOCHS:
+            with torch.no_grad():
+                acc = (model(Xt).argmax(1) == yt).float().mean().item()
+            print(f"    ep {ep:3d}  lam={lam:.2f}  train_acc={acc:.3f}")
 
     model.eval()
 
@@ -573,9 +666,9 @@ def main():
 
     # ── Data ─────────────────────────────────────────────────────────────────
     print("Loading psMNIST …")
-    X_tr, y_tr, X_te, y_te, mu, sig = load_mnist()
+    X_tr, y_tr, X_te, y_te = load_mnist()
     print(f"  train {X_tr.shape}  test {X_te.shape}")
-    np.savez("norm_params.npz", mean=mu, std=sig, permutation=PERMUTATION)
+    np.savez("norm_params.npz", permutation=PERMUTATION)
 
     # ── Train two models ──────────────────────────────────────────────────────
     # Small model (hidden=8): compact enough for IBP to certify UNSAT.
@@ -587,8 +680,9 @@ def main():
     # keeps the intermediate values small enough that IBP stays tight.
 
     print(f"\nTraining SMALL model (hidden={HIDDEN_SMALL}) for UNSAT instances …")
+    print(f"  (IBP-regularised: eps={EPS_UNSAT:.6f} = 1/255 in [0,1] space)")
     model_small = psMNIST_LSTM(HIDDEN_SMALL)
-    train(model_small, X_tr, y_tr)
+    train_ibp(model_small, X_tr, y_tr, EPS_UNSAT)
     with torch.no_grad():
         Xt = torch.tensor(X_te, dtype=torch.float32)
         logits_s = model_small(Xt).numpy()
@@ -626,13 +720,18 @@ def main():
     correct_l = preds_l == y_te
 
     # Collect paired instances: each entry is (test_idx, x_unsat, x_sat, eps_sat, true_cls)
-    pairs = []
-    print(f"\nBuilding shared image pool (target N_POOL={N_POOL}) …")
+    MAX_PER_CLASS = 5   # cap per digit class to ensure class diversity
+    pairs         = []
+    class_counts  = {}
+    print(f"\nBuilding shared image pool (target N_POOL={N_POOL}, max {MAX_PER_CLASS}/class) …")
     for idx in candidates:
         if len(pairs) >= N_POOL:
             break
         x  = X_te[idx]
         tc = int(y_te[idx])
+
+        if class_counts.get(tc, 0) >= MAX_PER_CLASS:
+            continue
 
         # UNSAT filter: IBP must certify the h8 model at EPS_UNSAT
         if not ibp_certify(model_small, x, EPS_UNSAT, tc):
@@ -646,6 +745,7 @@ def main():
 
         x_test, eps_sat, true_cls = result
         pairs.append((int(idx), x, x_test, eps_sat, tc))
+        class_counts[tc] = class_counts.get(tc, 0) + 1
         print(f"  [{len(pairs):2d}/{N_POOL}] test_idx={idx:5d}  cls={tc}"
               f"  eps_unsat={EPS_UNSAT:.4f}  eps_sat={eps_sat:.4f}")
 

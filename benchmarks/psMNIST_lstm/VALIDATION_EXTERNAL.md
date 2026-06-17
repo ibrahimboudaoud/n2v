@@ -1,6 +1,6 @@
-# External UNSAT Validation Report — psMNIST_lstm v2
+# External UNSAT Validation Report — psMNIST_lstm v3
 
-**Date**: 2026-06-11  
+**Date**: 2026-06-17  
 **Benchmark**: `benchmarks/psMNIST_lstm/` — 25 UNSAT instances, `prop_000–prop_024` on `lstm_psMNIST_h8.onnx`  
 **Task**: confirm or refute the 25 UNSAT labels using a sound verifier independent of n2v's IBP
 
@@ -14,19 +14,7 @@
 
 ## 1. Tool and Environment
 
-### Primary tool attempted: alpha-beta-CROWN
-
-alpha-beta-CROWN (the VNN-COMP reference verifier) was not installed in the active environment.
-The tool requires a dedicated setup from its GitHub repository
-(`https://github.com/Verified-Intelligence/alpha-beta-CROWN`) with a custom conda environment
-and a complex YAML-based configuration system. This setup was not attempted because
-**auto_LiRPA** — the bound-propagation library that alpha-beta-CROWN is built on — is
-available as a standalone package and provides CROWN bounds directly. The tool used is
-auto_LiRPA 0.7.2, CROWN mode — the sound bound-propagation core of alpha-beta-CROWN. The full
-alpha-beta-CROWN wrapper (alpha-optimization + branch-and-bound) was not run, but is unnecessary
-here given the minimum margin of +1.455.
-
-### Fallback tool used: auto_LiRPA (CROWN method)
+### Tool used: auto_LiRPA (CROWN method)
 
 | Item | Value |
 |---|---|
@@ -39,8 +27,8 @@ here given the minimum margin of +1.455.
 | onnx2torch | 1.5.15 |
 | Python | 3.11.15 |
 | OS / Hardware | macOS 15.2, Apple Silicon arm64 (CPU only) |
-| Conda env | `abcrown` (Python 3.11, created for this task) |
-| Date run | 2026-06-11 |
+| Conda env | `abcrown` (Python 3.11) |
+| Date run | 2026-06-17 |
 
 ### Why CROWN is a sound, independent check
 
@@ -84,40 +72,16 @@ auto_LiRPA.BoundedModule(model, dummy, device='cpu')
   → BoundedModule wrapped successfully  ✓
 
 CROWN smoke-test on dummy input: OK
-  → output lb = [3.29, -8.43, 1.71, ...]  (finite, non-trivial)  ✓
+  → output lb = [-0.118, 7.312, 1.311, ...]  (finite, non-trivial)  ✓
 ```
 
-One warning was emitted by onnx2torch:
-```
-UserWarning: Using a non-tuple sequence for multidimensional indexing is deprecated...
-  (slice.py:63 — Slice operator handling)
-```
-This is an onnx2torch implementation warning unrelated to correctness. The conversion and
-bound computation are not affected.
-
-auto_LiRPA also emitted one batch-dimension warning on an `Add` node. This is a known
-cosmetic warning in auto_LiRPA when constants have a batch dimension; it does not affect
-soundness.
-
-The BoundedModule initialisation took 8.4 s (model graph construction and operator
-registration). Per-instance bound computation was approximately 2.0 s each.
+Warnings emitted by onnx2torch (`UserWarning: non-writable tensor`, `TracerWarning: Converting
+a tensor to a NumPy array`) and by auto_LiRPA (`UserWarning: Constant operand has batch
+dimension`) are cosmetic; they do not affect bound computation soundness.
 
 ---
 
 ## 3. Execution
-
-### Commands
-
-```bash
-# Create and configure environment
-conda create -n abcrown python=3.11 -y
-conda run -n abcrown pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-conda run -n abcrown pip install "auto-LiRPA @ git+https://github.com/Verified-Intelligence/auto_LiRPA.git"
-conda run -n abcrown pip install onnx onnx2torch
-
-# Run verification
-conda run -n abcrown python3 /tmp/verify_unsat.py
-```
 
 ### Key parameters
 
@@ -148,31 +112,31 @@ norm_params.npz.
 
 | Instance | true\_cls | n2v label | CROWN verdict | Bucket | Min margin | Runtime |
 |---|---|---|---|---|---|---|
-| prop_000 | 2 | UNSAT | CERTIFIED | **CONFIRMED** | +5.6158 | 1.81 s |
-| prop_001 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +5.3863 | 1.97 s |
-| prop_002 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.2163 | 1.98 s |
-| prop_003 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.2071 | 1.97 s |
-| prop_004 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1888 | 1.96 s |
-| prop_005 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1051 | 1.95 s |
-| prop_006 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.7564 | 2.00 s |
-| prop_007 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +4.5176 | 1.99 s |
-| prop_008 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4406 | 2.00 s |
-| prop_009 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4089 | 1.94 s |
-| prop_010 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3776 | 2.09 s |
-| prop_011 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3434 | 2.00 s |
-| prop_012 | 3 | UNSAT | CERTIFIED | **CONFIRMED** | +4.0217 | 1.98 s |
-| prop_013 | 8 | UNSAT | CERTIFIED | **CONFIRMED** | +3.2396 | 1.97 s |
-| prop_014 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +2.7641 | 1.98 s |
-| prop_015 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +3.0556 | 1.87 s |
-| prop_016 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +3.0592 | 1.99 s |
-| prop_017 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +2.9509 | 1.98 s |
-| prop_018 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +2.9301 | 1.96 s |
-| prop_019 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +2.8774 | 2.00 s |
-| prop_020 | 2 | UNSAT | CERTIFIED | **CONFIRMED** | +2.7057 | 1.98 s |
-| prop_021 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +2.2967 | 2.03 s |
-| prop_022 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +2.1746 | 2.02 s |
-| prop_023 | 2 | UNSAT | CERTIFIED | **CONFIRMED** | +2.0899 | 1.87 s |
-| prop_024 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +1.4550 | 2.00 s |
+| prop_000 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +7.2263 | 1.93 s |
+| prop_001 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +5.9994 | 1.90 s |
+| prop_002 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.7675 | 1.96 s |
+| prop_003 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +5.7513 | 1.95 s |
+| prop_004 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +5.0386 | 1.96 s |
+| prop_005 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.2479 | 1.99 s |
+| prop_006 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.9860 | 2.00 s |
+| prop_007 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.9419 | 1.98 s |
+| prop_008 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1158 | 1.99 s |
+| prop_009 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3639 | 1.88 s |
+| prop_010 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.8833 | 1.98 s |
+| prop_011 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.2533 | 1.98 s |
+| prop_012 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.5811 | 2.01 s |
+| prop_013 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.1085 | 2.01 s |
+| prop_014 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4426 | 1.88 s |
+| prop_015 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4863 | 2.01 s |
+| prop_016 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.8185 | 2.08 s |
+| prop_017 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +4.1918 | 2.01 s |
+| prop_018 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.9785 | 2.03 s |
+| prop_019 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3510 | 1.99 s |
+| prop_020 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.9908 | 2.02 s |
+| prop_021 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.7600 | 2.07 s |
+| prop_022 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.2516 | 1.92 s |
+| prop_023 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +3.9355 | 2.08 s |
+| prop_024 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +3.1878 | 2.02 s |
 
 **Min margin** = min over all j ≠ true_cls of `(lb[true_cls] − ub[j])`. A positive value
 means CROWN proves the true class lower bound exceeds every other class upper bound by that
@@ -188,7 +152,7 @@ amount. No instance is even close to zero.
 | INCONCLUSIVE | 0 / 25 |
 | CONTRADICTED | 0 / 25 |
 
-Total wall time: ~50 s (2.0 s/instance + 8.4 s model init).
+Total wall time: ~50 s (2.0 s/instance + 7.9 s model init).
 
 ---
 
@@ -196,23 +160,21 @@ Total wall time: ~50 s (2.0 s/instance + 8.4 s model init).
 
 **The 25 UNSAT labels are independently validated.**
 
-auto_LiRPA's CROWN method certifies all 25 instances at ε = 0.005 on `lstm_psMNIST_h8.onnx`.
-The minimum certification margin across all instances is +1.455 logit units (prop_024), which
-is a comfortable safety margin above zero — no instance is borderline. This result is not
-surprising: the benchmark was designed by selecting only IBP-certifiable instances on the
-h8 model, and CROWN is strictly stronger than IBP, so CROWN certifying all 25 is expected.
-The value of this exercise is that it eliminates the circularity: a self-consistent
-IBP-pass-at-generation + IBP-recheck at dry-run time could in principle both fail the same
-way if n2v's IBP had a systematic bug. CROWN's independent implementation of linear
-relaxation confirms there is no such bug — the instances are genuinely robust.
+auto_LiRPA's CROWN method certifies all 25 instances at ε = 1/255 ≈ 0.003922 on
+`lstm_psMNIST_h8.onnx`. The minimum certification margin across all instances is +3.188 logit
+units (prop_024, cls=7).
+
+This is a comfortable safety margin above zero — no instance is borderline. The benchmark was
+designed by selecting only IBP-certifiable instances on the h8 model under IBP-regularised
+training (CROWN-IBP style); CROWN is strictly stronger than IBP, so CROWN certifying all 25
+is expected. The value of this exercise is that it eliminates the circularity: a
+self-consistent IBP-pass-at-generation + IBP-recheck at dry-run time could in principle both
+fail the same way if n2v's IBP had a systematic bug. CROWN's independent implementation of
+linear relaxation confirms there is no such bug — the instances are genuinely robust.
+
+The full alpha-beta-CROWN harness was also run (see `VALIDATION_ABCROWN.md`) confirming 50/50
+match across all instances with zero timeouts.
 
 **For the VNN-COMP 2026 submission writeup**: the UNSAT labels are corroborated by auto_LiRPA
-CROWN v0.7.2, an independent implementation of linear relaxation bounds. The SAT labels were
-previously confirmed by concrete witnesses (see `VERIFY_v2.md`). The benchmark is sound.
-
-**Remaining gap**: alpha-beta-CROWN (the actual competition verifier) was not run because its
-full installation was not set up. Since auto_LiRPA is the computational core of alpha-beta-CROWN,
-this gap is minimal — the underlying bound computation is the same. To fully close it, run
-the instances through the `abcrown.py` script from
-`https://github.com/Verified-Intelligence/alpha-beta-CROWN` with `method: CROWN-Optimized`
-before the official submission.
+CROWN v0.7.2, an independent implementation of linear relaxation bounds. The SAT labels are
+confirmed by concrete witnesses (see `VERIFY_v2.md`). The benchmark is sound.

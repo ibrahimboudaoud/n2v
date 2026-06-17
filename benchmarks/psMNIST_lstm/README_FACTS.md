@@ -28,7 +28,7 @@ submission writeup.
 | **Features per timestep** | 28 |
 | **Total input dimension** | 392 (= 14 × 28) |
 | **Classes** | 10 (digits 0–9) |
-| **Normalization** | Z-score: mean=0.1307, std=0.3081 (standard MNIST normalization) |
+| **Normalization** | `/255` only — inputs in [0,1]. ε = k/255 corresponds to exactly k pixel levels of perturbation (standard VNN-COMP image-benchmark convention). |
 
 Note: the canonical psMNIST task uses 28 timesteps × 28 features = 784-dim. This benchmark
 uses a truncated 14-timestep sequence for faster LSTM verification benchmarking.
@@ -47,9 +47,9 @@ uses a truncated 14-timestep sequence for faster LSTM verification benchmarking.
 | **ONNX opset** | 14 |
 | **Input shape** | (1, 392) — flattened; model slices internally into 14 × 28 |
 | **Output shape** | (1, 10) — raw logits |
-| **Test accuracy** | 83% on MNIST test set (14-step psMNIST, 10 classes) |
+| **Test accuracy** | 79.7% on MNIST test set (14-step psMNIST, 10 classes; lower expected — tiny model, IBP-regularised training) |
 | **Training seed** | 42 |
-| **Training config** | EPOCHS=40, BATCH_SIZE=256, LR=1e-3, Adam optimizer |
+| **Training config** | EPOCHS=40, BATCH_SIZE=256, LR=1e-3, Adam; IBP-regularised (CROWN-IBP style, lambda ramp 0→1 over epochs 11–40) |
 | **Key ONNX ops** | Gemm, Add, Sigmoid, Tanh, Mul, Slice, MatMul, Constant |
 | **SHA-256** | `531d21dc9e93a27812b956e49ae9dbf713c220be3c832205b639db0af403fcb4` |
 
@@ -63,7 +63,7 @@ uses a truncated 14-timestep sequence for faster LSTM verification benchmarking.
 | **ONNX opset** | 14 |
 | **Input shape** | (1, 392) — flattened; model slices internally into 14 × 28 |
 | **Output shape** | (1, 10) — raw logits |
-| **Test accuracy** | 91% on MNIST test set (14-step psMNIST, 10 classes) |
+| **Test accuracy** | 92.5% on MNIST test set (14-step psMNIST, 10 classes) |
 | **Training seed** | 42 |
 | **Training config** | EPOCHS=40, BATCH_SIZE=256, LR=1e-3, Adam optimizer |
 | **Key ONNX ops** | Gemm, Add, Sigmoid, Tanh, Mul, Slice, MatMul, Constant |
@@ -86,12 +86,12 @@ CSV format:
 
 ## 5. Epsilon Values
 
-| Model | ε | Derivation |
-|---|---|---|
-| h8 (UNSAT) | **0.005** (fixed constant) | Tightest L∞ ball certifiable by IBP through 14 timesteps on h8; pre-screened at generation time |
-| h64 (SAT) | **0.022 (effectively fixed)**; range 0.021996–0.022001 | `1.1 × L∞(x_test, boundary)` from 50-step bisection with delta=0.02; boundary search converges to same radius for all 25 instances |
+| Model | ε | Pixel interpretation | Derivation |
+|---|---|---|---|
+| h8 (UNSAT) | **1/255 ≈ 0.003922** (fixed constant) | Exactly **1 pixel level** of L∞ perturbation | IBP-certifiable at generation time; pre-screened |
+| h64 (SAT) | **0.022 (effectively fixed)** | ≈ **5.6 pixel levels** | `1.1 × L∞(x_test, boundary)` from 50-step bisection with delta=0.02 |
 
-Verified by VERIFY_v2.md Task 4: 9 distinct epsilon values in [0.021996, 0.022001]; spread 4.25 × 10⁻⁵.
+Verified by VERIFY_v2.md Task 4: all 25 SAT instances have eps=0.022000 (uniform).
 The near-uniformity follows from `eps = 1.1 × delta = 1.1 × 0.02 = 0.022`; after 50 bisections
 `L∞(x_test, boundary) ≈ delta` to precision L∞(x0, x1) / 2⁵⁰ ≈ 0.
 
@@ -103,25 +103,27 @@ The near-uniformity follows from `eps = 1.1 × delta = 1.1 × 0.02 = 0.022`; aft
 (prop_k on h8) and one SAT property (prop_{k+25} on h64). Pool order corresponds to k = 0…24.
 
 ```
-k  → MNIST test index   k  → MNIST test index
- 0 → 5761               13 → 7845
- 1 → 8098               14 → 4474
- 2 → 3182               15 → 4392
- 3 →  665               16 → 5768
- 4 → 6129               17 → 1131
- 5 → 5669               18 → 2170
- 6 → 8535               19 → 2833
- 7 → 6121               20 → 9135
- 8 → 8853               21 → 4593
- 9 → 9080               22 → 4200
-10 → 9087               23 → 5385
-11 → 9040               24 → 5153
-12 → 3221
+k  → MNIST test index  cls    k  → MNIST test index  cls
+ 0 → 1434               1    13 → 5056               5
+ 1 → 4984               1    14 → 7409               6
+ 2 → 4386               1    15 → 9052               0
+ 3 →  675               1    16 → 8312               4
+ 4 → 1884               1    17 → 8822               4
+ 5 → 6463               6    18 → 8395               4
+ 6 → 7752               5    19 → 9134               0
+ 7 → 8996               6    20 → 9866               4
+ 8 → 4583               5    21 →   67               4
+ 9 → 7155               5    22 →  440               0
+10 → 7152               6    23 → 8458               0
+11 → 9606               5    24 → 6858               7
+12 → 7172               6
 ```
+
+Class distribution: 0 (4), 1 (5), 4 (5), 5 (5), 6 (5), 7 (1). Pool capped at max 5 per class.
 
 All indices are from the MNIST **test** split (indices 0–9999). No training images are used.
 No two properties share a source image. Verified by VERIFY_v2.md Task 1: 25/25 UNSAT centers
-reconstruct to their source image with L∞ ≤ 8.5 × 10⁻⁸ (format-rounding residual only).
+reconstruct to their source image with L∞ ≤ 3 × 10⁻⁸ (format-rounding residual only).
 
 ---
 
@@ -131,13 +133,13 @@ reconstruct to their source image with L∞ ≤ 8.5 × 10⁻⁸ (format-rounding
 
 | Verifier | Method | Result | Min margin | Reference |
 |---|---|---|---|---|
-| n2v IBP | Interval bound propagation | 25/25 certified | +0.166 logits (prop_024) | generate.py at generation time |
-| auto_LiRPA 0.7.2 | CROWN (linear relaxation) | **25/25 CONFIRMED** | +1.455 logits (prop_024) | VALIDATION_EXTERNAL.md |
+| n2v IBP (CROWN-IBP regularised) | Interval bound propagation | 25/25 certified | — | generate.py at generation time |
+| auto_LiRPA 0.7.2 | CROWN (linear relaxation) | **25/25 CONFIRMED** | +3.188 logits (prop_024) | VALIDATION_EXTERNAL.md |
+| alpha-beta-CROWN 0.7.0 | Full harness (abcrown.py, CROWN mode) | **25/25 safe-incomplete** | — | VALIDATION_ABCROWN.md |
 
 CROWN is independent of n2v IBP: it applies linear relaxation (BoundMul uses McCormick
-envelopes for bilinear terms), not interval arithmetic. The 2–4× tighter CROWN margins confirm
-no systematic IBP bug. ONNX SHA-256 verified unchanged before and after all verification runs
-(VALIDATION_AUDIT.md Check 6).
+envelopes for bilinear terms), not interval arithmetic. Positive margins confirm no systematic
+IBP bug.
 
 ### SAT (25 instances — prop_025–049)
 
@@ -183,15 +185,14 @@ No requirements file for the abcrown env is pinned in this repo.
 
 ## 10. Known Notes
 
-**3 class-6 pairing exceptions (props 027, 041, 043)**: SAT properties for pool indices k=2,
-16, 18 (MNIST test[3182], test[5768], test[2170] — all class 6) have source images whose h64
-decision boundaries are geometrically distant (>17 L∞ units in normalized 392-d space). As a
-result, `x_test` ends up far from the source image and closer in L∞ to a different class-6
-test image. This is **correct-by-construction**: `true_cls=6` is preserved for all three, and
-the shared-pool invariant (`unsat_indices == sat_indices`) is structurally enforced by
-`generate.py`. See VERIFY_v2.md Task 3 for full analysis.
+**IBP-regularised training (h8 only)**: The h8 model is trained with a CROWN-IBP style combined
+loss (clean CE + IBP worst-case CE, lambda 0→1 over epochs 11–40). This is required because
+plain /255 inputs (mean ≈ 0.13) lead to larger model weights than Z-score inputs, which blows
+up IBP interval expansion through 14 LSTM timesteps. The IBP-regularised training directly
+penalises non-certifiable behaviour and achieves 74%+ IBP certification rate on correctly-
+classified test images at ε=1/255. The h64 model uses standard Adam training (no IBP loss needed
+since it is only used for SAT instances via PGD falsification).
 
-**No root-level LICENSE**: As of 2026-06-11 the n2v repository has no root-level LICENSE file.
-This `benchmarks/psMNIST_lstm/LICENSE` (MIT, 2026 Ibrahim Boudaoud) covers the benchmark
-directory for VNN-COMP packaging purposes. A root LICENSE should be added to the fork before
-any upstream PR.
+**Class coverage**: Classes 2, 3, 8, 9 are absent from the pool. IBP certification at ε=1/255
+is harder for those digit geometries under the /255-trained h8 model. The pool cap (max 5 per
+class) ensures 5 distinct classes appear; 6 classes are represented in practice (0, 1, 4, 5, 6, 7).

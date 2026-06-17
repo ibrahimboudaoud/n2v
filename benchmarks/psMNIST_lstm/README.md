@@ -1,4 +1,4 @@
-# psMNIST LSTM Benchmark (v2 — shared image pool)
+# psMNIST LSTM Benchmark (v3 — /255 normalization, k/255 epsilon)
 
 VNN-COMP 2026 robustness benchmark for recurrent networks.
 
@@ -19,8 +19,8 @@ Requires: `torch torchvision onnx numpy`
 
 | Property index | Model | Result | Epsilon |
 |---|---|---|---|
-| prop_000 … prop_024 | `lstm_psMNIST_h8.onnx` | UNSAT | 0.005 (fixed) |
-| prop_025 … prop_049 | `lstm_psMNIST_h64.onnx` | SAT | 0.022 (effectively fixed) |
+| prop_000 … prop_024 | `lstm_psMNIST_h8.onnx` | UNSAT | 1/255 ≈ 0.003922 (1 pixel level, fixed) |
+| prop_025 … prop_049 | `lstm_psMNIST_h64.onnx` | SAT | 0.022 ≈ 5.6/255 (effectively fixed) |
 
 Image `i` maps to `prop_i` (UNSAT) and `prop_{i+25}` (SAT). Only **(model, epsilon)** vary between the two halves — image identity is held constant. This removes the confound present in the v1 design (`benchmarks/psMNIST_lstm_v1_confounded/`) where model, epsilon, and image all changed together.
 
@@ -32,21 +32,32 @@ The h64 model is required for SAT because its well-trained decision boundary pro
 
 **In short**: a single model cannot satisfy both requirements. UNSAT requires IBP-certifiability (h8); SAT requires a sharp decision boundary (h64).
 
-### Epsilon values
+### Epsilon values and normalization
 
-- **UNSAT ε = 0.005**: fixed constant (`EPS_UNSAT` in `generate.py`). Tightest L∞ ball certifiable by IBP through 14 LSTM timesteps on h8.
-- **SAT ε = 0.022 (effectively fixed)**; verified range 0.021996–0.022001 across all 25 instances: computed as `1.1 × L∞(x_test, boundary_point)` via 50-step binary search (`SAT_BISECT_STEPS`, `SAT_DELTA` in `generate.py`). After 50 bisections `L∞(x_test, boundary) ≈ delta = 0.02`, so `eps = 1.1 × 0.02 = 0.022` for all instances.
+Inputs are normalized by dividing by 255 (plain `/255`, no Z-score). Inputs live in **[0,1]**.
+This makes epsilon directly interpretable as pixel-level perturbation: ε = k/255 means exactly
+k plus-or-minus pixel levels of perturbation (standard VNN-COMP image benchmark convention).
 
-All inputs are Z-score normalised using training-set statistics (stored in `norm_params.npz`).
+- **UNSAT ε = 1/255 ≈ 0.003922**: fixed constant (`EPS_UNSAT` in `generate.py`). Exactly
+  **1 pixel level** of L∞ perturbation. The h8 model is trained with IBP regularisation
+  (CROWN-IBP style) to be certifiable at this epsilon.
+- **SAT ε = 0.022 (effectively fixed)**: ≈ 5.6 pixel levels. Computed as
+  `1.1 × L∞(x_test, boundary_point)` via 50-step binary search (`SAT_BISECT_STEPS`,
+  `SAT_DELTA` in `generate.py`). After 50 bisections `L∞(x_test, boundary) ≈ delta = 0.02`,
+  so `eps = 1.1 × 0.02 = 0.022` for all 25 instances.
+
+The permutation index is stored in `norm_params.npz` (only the permutation — no mean/std needed).
 
 ### Instance selection
 
 Candidates are filtered jointly: a source image is accepted only if
 1. both h8 and h64 correctly classify it,
-2. `ibp_certify(h8, x, 0.005, true_class)` returns True, and
+2. `ibp_certify(h8, x, 1/255, true_class)` returns True, and
 3. `find_sat_instance(h64, x, ...)` finds a valid boundary witness.
 
-Candidates are sorted by h8 logit margin (descending) to maximise IBP certifiability. The first `N_POOL=25` images passing all filters form the shared pool.
+Candidates are sorted by h8 logit margin (descending) to maximise IBP certifiability. A per-class
+cap (max 5 per digit class) ensures class diversity. The first `N_POOL=25` images passing all
+filters form the shared pool (covering 6 digit classes: 0, 1, 4, 5, 6, 7).
 
 ## Reproducibility
 
@@ -70,8 +81,8 @@ Re-running `python generate.py` from a clean directory produces bit-identical ON
 
 ## Verification status
 
-- **UNSAT (25)**: certified by n2v IBP at generation time; independently confirmed 25/25 by auto_LiRPA 0.7.2 CROWN (min margin +1.455 logits, prop_024). See `VALIDATION_EXTERNAL.md`.
-- **SAT (25)**: concrete witnesses confirmed inside every L∞ ball by file-only inspection. See `VERIFY_v2.md`.
+- **UNSAT (25)**: certified by n2v IBP-regularised training at generation time; independently confirmed 25/25 by auto_LiRPA 0.7.2 CROWN (min margin +3.188 logits, prop_024); end-to-end confirmed by alpha-beta-CROWN 0.7.0 harness (50/50 MATCH, 0 timeout). See `VALIDATION_EXTERNAL.md` and `VALIDATION_ABCROWN.md`.
+- **SAT (25)**: concrete witnesses confirmed inside every L∞ ball by file-only inspection; confirmed by alpha-beta-CROWN PGD (<0.15 s each). See `VERIFY_v2.md`.
 
 ## Files
 

@@ -20,19 +20,33 @@ Permuted Sequential MNIST (psMNIST) is the LSTM analogue of the standard MNIST f
 
 ## 2. Epsilon Rationale
 
-### 2.1 ε = 0.005 — UNSAT instances (h8 model)
+### 2.1 ε = 1/255 ≈ 0.003922 — UNSAT instances (h8 model)
 
-`EPS_UNSAT = 0.005` is a **fixed constant** set in `generate.py:73`.
+`EPS_UNSAT = 1/255` is a **fixed constant** set in `generate.py`. It corresponds to exactly
+**1 pixel level** of L∞ perturbation in [0,1] input space (the standard VNN-COMP
+image-benchmark convention: pixels range 0–255, so dividing by 255 means ε = k/255 = k pixel
+levels).
 
-The choice is driven by what IBP can certify through 14 LSTM timesteps. IBP propagates interval bounds `[lb, ub]` forward through the unrolled computation. Each LSTM timestep has two multiplicative nonlinearities:
-- `f ⊙ c` (forget gate × cell state)
-- `i ⊙ g` (input gate × cell candidate)
+Inputs are normalised by dividing by 255 only (no Z-score). This makes the epsilon
+semantically meaningful: an adversary can perturb each pixel by at most 1 grey-level value.
 
-These are bounded with the four-corner product: `[min(corners), max(corners)]`. Interval widths compound across all 14 timesteps. At ε = 0.005, the initial perturbation ball is tight enough that IBP can still certify `logit[true] > logit[j]` for all 9 wrong classes after the full 14-step propagation. At larger ε values (e.g. 0.01), IBP interval widths blow up and IBP can no longer certify anything on the h8 model.
+The h8 model is trained with **IBP regularisation** (CROWN-IBP / DiffAI style): the training
+loss combines clean cross-entropy with an IBP worst-case cross-entropy loss (lambda ramped
+0→1 over epochs 11–40). This directly penalises non-certifiable behaviour and keeps weight
+norms small enough for IBP to certify through 14 timesteps. Without IBP regularisation,
+/255-trained models have larger weights (inputs are smaller: mean ≈ 0.13 vs 0 for Z-score)
+and IBP interval blowup is 0% certifiable. With IBP regularisation, ~74% of correctly-
+classified test images are certifiable at ε=1/255.
 
-Instances are **pre-screened**: only test inputs where `ibp_certify(model_small, x, 0.005, true_cls)` returns `True` are written to VNN-LIB. The IBP check in `generate.py:313–360` does a full forward pass through all 14 timesteps with interval arithmetic, confirming the true class lower-bound beats every other class upper-bound.
+Instances are **pre-screened**: only test inputs where `ibp_certify(model_small, x, 1/255, true_cls)`
+returns `True` are written to VNN-LIB. The IBP check does a full forward pass through all 14
+timesteps with interval arithmetic, confirming the true class lower-bound beats every other
+class upper-bound.
 
-Why h8 specifically? The small model (8 hidden units) has narrow weight matrices — the intervals spread less per timestep, so IBP remains tight enough to certify. The large h64 model has 64-dimensional hidden state; even at ε=0.005, interval blowup from 64 × 14 = 896 sigmoid/tanh applications makes IBP non-certifying for almost any test input.
+Why h8 specifically? The small model (8 hidden units) has narrow weight matrices — the
+intervals spread less per timestep, so IBP remains tight enough to certify. The large h64
+model has 64-dimensional hidden state; interval blowup from 64 × 14 = 896 sigmoid/tanh
+applications makes IBP non-certifying for almost any test input.
 
 ### 2.2 ε ≈ 0.022 (effectively fixed) — SAT instances (h64 model)
 
@@ -51,7 +65,8 @@ The geometry:
 
 The 10% margin (×1.1) ensures the wrong-class witness is comfortably inside the ball, not just touching it. After 50 bisections the boundary is located to precision ≈ L∞(x0, x1) / 2⁵⁰ ≈ 0, so `L∞(x_test, b) ≈ delta = 0.02` for all instances, giving `eps = 1.1 × 0.02 = 0.022`. The tight range [0.021996, 0.022001] was confirmed by VERIFY_v2.md Task 4.
 
-All inputs are Z-score normalized (standard MNIST normalization with mean=0.1307, std=0.3081), so these ε values are in normalized pixel space, not raw [0,1] space.
+All inputs are in [0,1] (/255 normalization). ε = 0.022 corresponds to ≈ 5.6 pixel levels of
+L∞ perturbation (5.61 = 0.022 × 255).
 
 **Why h64 for SAT?** The large model has a well-trained decision boundary with sharp transitions. The binary search converges to a geometrically close boundary point, yielding a reasonably small ε (0.02 range). The small h8 model's decision boundary is poorly calibrated (83% accuracy) and much harder to falsify at meaningful ε values.
 
@@ -61,12 +76,18 @@ All inputs are Z-score normalized (standard MNIST normalization with mean=0.1307
 
 | Model | Hidden size | Test accuracy | Role |
 |---|---|---|---|
-| `lstm_psMNIST_h8.onnx` | 8 | **83%** | UNSAT instances — certified by IBP |
-| `lstm_psMNIST_h64.onnx` | 64 | **91%** | SAT instances — falsification witnesses |
+| `lstm_psMNIST_h8.onnx` | 8 | **79.7%** | UNSAT instances — certified by IBP-regularised model |
+| `lstm_psMNIST_h64.onnx` | 64 | **92.5%** | SAT instances — falsification witnesses |
 
-**h8 at 83%**: The accuracy is intentionally low. With only 8 hidden units, the model cannot memorize enough digit structure to achieve high accuracy on psMNIST (a hard task). What matters for the benchmark is not accuracy but IBP certifiability: the small model's weight norms are low enough that IBP stays tight through 14 timesteps. An 83% accurate model still classifies most test inputs correctly — those inputs are the ones selected for UNSAT instances.
+**h8 at 79.7%**: The accuracy is intentionally lower than a standard-trained h8. The IBP
+regularisation introduces a conservative bias (penalising non-certifiable behaviour) which
+trades some accuracy for certifiability. What matters is IBP certifiability at ε=1/255: with
+IBP-regularised training, 74%+ of correctly-classified test images are certifiable vs 0% with
+standard training.
 
-**h64 at 91%**: 91% is a realistic accuracy for an LSTM on truncated psMNIST (14/28 timesteps). A fully trained model on the full 28-step sequence would achieve ~97–98%. The 91% number reflects training on 14 timesteps with EPOCHS=40, which is sufficient. High accuracy means the model has a well-defined decision boundary that binary search can locate reliably.
+**h64 at 92.5%**: 92.5% is a good accuracy for an LSTM on truncated psMNIST (14/28 timesteps).
+High accuracy means the model has a well-defined decision boundary that binary search can
+locate reliably, enabling tight SAT witnesses.
 
 Both models are trained with `SEED=42` for reproducibility. Training is ~40 epochs on the full 60,000 MNIST training images with batch size 256.
 
@@ -84,7 +105,7 @@ Both models are trained with `SEED=42` for reproducibility. Training is ~40 epoc
 | Label ≥50 instances | **Done** | `ground_truth.csv`: 25 UNSAT (h8) + 25 SAT (h64) |
 | `instances.csv` (VNN-COMP format) | **Done** | 50 rows, no header, `onnx,vnnlib,timeout=120` |
 | Validate labels (self) | **Done** | n2v Box/IBP for UNSAT, n2v PGD falsification for SAT |
-| Validate labels (external) | **Not done** | No α,β-CROWN or Marabou run yet |
+| Validate labels (external) | **Done** | α,β-CROWN 0.7.0 full harness: 50/50 MATCH, 0 timeout (VALIDATION_ABCROWN.md) |
 | Benchmark description document | **Not done** | VNN-COMP requires a short paper/description |
 
 ### 4.2 File structure
@@ -122,13 +143,15 @@ benchmarks/psMNIST_lstm/
 
 **SAT (25 instances, h64)**: Each SAT label has an explicit witness: the boundary point `b` that the binary search found. This witness is a concrete input in `[x_test - eps, x_test + eps]` that the h64 model classifies into the wrong class. Existence of a concrete counterexample makes SAT sound by construction — no verifier is needed to validate SAT instances. The `run_n2v_dryrun()` function also confirms PGD (gradient-based falsification) recovers these witnesses.
 
-### 5.2 What has NOT been verified
+### 5.2 External validation completed
 
-**External verifier validation**: The gold-standard VNN-COMP requirement is that labels can be reproduced by an independent verifier (α,β-CROWN, Marabou, or similar). This has **not been done yet**. Per LSTM_BENCHMARK_REPORT.md §7.2:
+**α,β-CROWN 0.7.0 full harness**: All 50 instances were run through `abcrown.py` (the official
+VNN-COMP entry point) via CSV mode. Result: **50/50 MATCH, 0 timeout**. UNSAT instances
+returned `safe-incomplete` (alpha-CROWN certified, 9.9–11.9 s each); SAT instances returned
+`unsafe-pgd` (PGD counterexample, <0.15 s each). See `VALIDATION_ABCROWN.md`.
 
-> Future goal 7.2: test against external verifier (α,β-CROWN or Marabou)
-
-This is the primary gap between "benchmark exists" and "benchmark is VNN-COMP-ready."
+**auto_LiRPA 0.7.2 CROWN**: All 25 UNSAT instances independently certified with minimum margin
++3.188 logits (prop_024). See `VALIDATION_EXTERNAL.md`.
 
 ### 5.3 Current n2v verification capability on psMNIST
 

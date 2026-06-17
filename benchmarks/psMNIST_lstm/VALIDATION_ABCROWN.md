@@ -1,6 +1,6 @@
 # End-to-End Validation Report — α,β-CROWN Full Harness
 
-**Date**: 2026-06-12  
+**Date**: 2026-06-17  
 **Benchmark**: `benchmarks/psMNIST_lstm/` — 50 instances (25 UNSAT prop_000–024, 25 SAT prop_025–049)  
 **Task**: smoke-test the complete alpha-beta-CROWN pipeline (`abcrown.py`), the same entry point
 used by VNN-COMP organizers, against all 50 instances via CSV mode.
@@ -29,29 +29,11 @@ table.
 | **auto_LiRPA** | 0.7.2 |
 | **onnxruntime** | 1.26.0 |
 | **torch** | 2.12.0 |
-| **Date run** | 2026-06-12 |
+| **Date run** | 2026-06-17 |
 
-### Install path
+### Config used
 
-alpha-beta-CROWN was **not** installed as a package. It was cloned from GitHub and run with
-`PYTHONPATH` pointing to the `complete_verifier/` directory:
-
-```bash
-git clone --depth=1 https://github.com/Verified-Intelligence/alpha-beta-CROWN ~/abcrown_tool/
-conda run -n abcrown pip install \
-  "onnx2pytorch @ git+https://github.com/Verified-Intelligence/onnx2pytorch@0826948" \
-  onnxoptimizer onnxruntime onnxscript pyyaml termcolor sortedcontainers sympy \
-  pandas appdirs psutil pillow skl2onnx tqdm graphviz gurobipy
-```
-
-`gurobipy` installs without a license; it is imported at module load time but is never invoked
-during CROWN or PGD verification (MIP solver is not used for these instances).
-
----
-
-## 2. YAML Config Used
-
-File: `/tmp/psmnist_abcrown.yaml` (scratch path outside n2v repo, not committed)
+File: `/tmp/psmnist_abcrown.yaml`
 
 ```yaml
 general:
@@ -65,12 +47,6 @@ bab:
   timeout: 120
 ```
 
-Config keys were validated against the example configs in
-`complete_verifier/exp_configs/vnncomp25/` (e.g. `cersyve.yaml`, `soundnessbench.yaml`) and
-against `complete_verifier/arguments.py`.
-
-### Command line
-
 ```bash
 cd ~/abcrown_tool/complete_verifier
 conda run --no-capture-output -n abcrown \
@@ -80,35 +56,13 @@ conda run --no-capture-output -n abcrown \
 
 ---
 
-## 3. Step 0 — Ingestion
+## 2. Step 0 — Ingestion
 
 **Result: CLEAN (with cosmetic warnings only). Both ONNX models loaded and ran without error.**
 
 Both `lstm_psMNIST_h8.onnx` and `lstm_psMNIST_h64.onnx` were successfully converted from ONNX
 to PyTorch via `onnx2pytorch.ConvertModel()` and wrapped in auto_LiRPA's `BoundedModule`. The
 ONNX-runtime reference check (output comparison) passed for both models.
-
-```
-Loading onnx onnx/lstm_psMNIST_h8.onnx with quirks {}
-Finished onnx model loading in 0.0857 seconds
-
-Loading onnx onnx/lstm_psMNIST_h64.onnx with quirks {}
-Finished onnx model loading in 0.0247 seconds
-```
-
-### Warnings emitted (all cosmetic)
-
-| Source | Warning | Impact on results |
-|---|---|---|
-| `torch/jit/_script.py` | `DeprecationWarning: torch.jit.script is deprecated` | None — PyTorch version deprecation; does not affect bound computation |
-| `onnx2pytorch/convert/layer.py:29` | `UserWarning: NumPy array is not writable` | None — weights loaded correctly; warning suppressed for rest of run |
-| `onnx2pytorch/convert/model.py:151` | `UserWarning: Using experimental implementation (batch_size > 1)` | None — cosmetic; BatchNorm is not present in these models |
-| `onnx2pytorch/operations/slice.py:73` | `TracerWarning: Converting tensor to Python boolean/integer` | None — known issue with Slice op tracing; does not affect inference or bound propagation |
-| `auto_LiRPA/operators/leaf.py:93` | `UserWarning: has_batchdim option is deprecated` | None — deprecated API path, scheduled for removal; output unchanged |
-| `auto_LiRPA/operators/base.py:441` | `UserWarning: Constant operand of BoundAdd has batch dimension` | None — known cosmetic warning in auto_LiRPA when ONNX constants have a batch dim |
-
-No `NotImplementedError`, `RuntimeError`, shape mismatch, or assertion failure was raised.
-**Ingestion is clean.**
 
 Note on LSTM operator handling: alpha-beta-CROWN has no native `BoundLSTM` operator; the LSTM
 is represented in the ONNX as explicit Gemm + Sigmoid + Tanh + Mul + Slice ops (the expanded
@@ -117,60 +71,60 @@ proceeds without any model surgery.
 
 ---
 
-## 4. Results — 50-Instance Table
+## 3. Results — 50-Instance Table
 
 | Instance | GT label | abcrown verdict | Classification | Runtime |
 |---|---|---|---|---|
-| prop_000 | unsat | safe-incomplete | **MATCH** | 9.85 s |
-| prop_001 | unsat | safe-incomplete | **MATCH** | 10.20 s |
-| prop_002 | unsat | safe-incomplete | **MATCH** | 10.09 s |
-| prop_003 | unsat | safe-incomplete | **MATCH** | 10.97 s |
-| prop_004 | unsat | safe-incomplete | **MATCH** | 10.65 s |
-| prop_005 | unsat | safe-incomplete | **MATCH** | 10.25 s |
-| prop_006 | unsat | safe-incomplete | **MATCH** | 9.91 s |
-| prop_007 | unsat | safe-incomplete | **MATCH** | 10.34 s |
-| prop_008 | unsat | safe-incomplete | **MATCH** | 11.47 s |
-| prop_009 | unsat | safe-incomplete | **MATCH** | 10.92 s |
-| prop_010 | unsat | safe-incomplete | **MATCH** | 10.27 s |
-| prop_011 | unsat | safe-incomplete | **MATCH** | 10.32 s |
-| prop_012 | unsat | safe-incomplete | **MATCH** | 10.34 s |
-| prop_013 | unsat | safe-incomplete | **MATCH** | 11.59 s |
-| prop_014 | unsat | safe-incomplete | **MATCH** | 10.90 s |
-| prop_015 | unsat | safe-incomplete | **MATCH** | 10.62 s |
-| prop_016 | unsat | safe-incomplete | **MATCH** | 10.63 s |
-| prop_017 | unsat | safe-incomplete | **MATCH** | 11.04 s |
-| prop_018 | unsat | safe-incomplete | **MATCH** | 12.84 s |
-| prop_019 | unsat | safe-incomplete | **MATCH** | 11.04 s |
-| prop_020 | unsat | safe-incomplete | **MATCH** | 10.30 s |
-| prop_021 | unsat | safe-incomplete | **MATCH** | 10.77 s |
-| prop_022 | unsat | safe-incomplete | **MATCH** | 11.32 s |
-| prop_023 | unsat | safe-incomplete | **MATCH** | 12.22 s |
-| prop_024 | unsat | safe-incomplete | **MATCH** | 11.65 s |
-| prop_025 | sat | unsafe-pgd | **MATCH** | 0.065 s |
-| prop_026 | sat | unsafe-pgd | **MATCH** | 0.062 s |
-| prop_027 | sat | unsafe-pgd | **MATCH** | 0.062 s |
-| prop_028 | sat | unsafe-pgd | **MATCH** | 0.064 s |
-| prop_029 | sat | unsafe-pgd | **MATCH** | 0.062 s |
-| prop_030 | sat | unsafe-pgd | **MATCH** | 0.044 s |
-| prop_031 | sat | unsafe-pgd | **MATCH** | 0.042 s |
-| prop_032 | sat | unsafe-pgd | **MATCH** | 0.063 s |
-| prop_033 | sat | unsafe-pgd | **MATCH** | 0.062 s |
-| prop_034 | sat | unsafe-pgd | **MATCH** | 0.139 s |
-| prop_035 | sat | unsafe-pgd | **MATCH** | 0.064 s |
-| prop_036 | sat | unsafe-pgd | **MATCH** | 0.066 s |
-| prop_037 | sat | unsafe-pgd | **MATCH** | 0.043 s |
-| prop_038 | sat | unsafe-pgd | **MATCH** | 0.062 s |
-| prop_039 | sat | unsafe-pgd | **MATCH** | 0.064 s |
-| prop_040 | sat | unsafe-pgd | **MATCH** | 0.043 s |
-| prop_041 | sat | unsafe-pgd | **MATCH** | 0.065 s |
-| prop_042 | sat | unsafe-pgd | **MATCH** | 0.065 s |
-| prop_043 | sat | unsafe-pgd | **MATCH** | 0.125 s |
-| prop_044 | sat | unsafe-pgd | **MATCH** | 0.044 s |
-| prop_045 | sat | unsafe-pgd | **MATCH** | 0.063 s |
-| prop_046 | sat | unsafe-pgd | **MATCH** | 0.065 s |
-| prop_047 | sat | unsafe-pgd | **MATCH** | 0.063 s |
-| prop_048 | sat | unsafe-pgd | **MATCH** | 0.065 s |
-| prop_049 | sat | unsafe-pgd | **MATCH** | 0.064 s |
+| prop_000 | unsat | safe-incomplete | **MATCH** | 10.32 s |
+| prop_001 | unsat | safe-incomplete | **MATCH** | 9.91 s |
+| prop_002 | unsat | safe-incomplete | **MATCH** | 10.12 s |
+| prop_003 | unsat | safe-incomplete | **MATCH** | 11.06 s |
+| prop_004 | unsat | safe-incomplete | **MATCH** | 10.62 s |
+| prop_005 | unsat | safe-incomplete | **MATCH** | 11.38 s |
+| prop_006 | unsat | safe-incomplete | **MATCH** | 10.80 s |
+| prop_007 | unsat | safe-incomplete | **MATCH** | 10.40 s |
+| prop_008 | unsat | safe-incomplete | **MATCH** | 11.92 s |
+| prop_009 | unsat | safe-incomplete | **MATCH** | 10.43 s |
+| prop_010 | unsat | safe-incomplete | **MATCH** | 10.51 s |
+| prop_011 | unsat | safe-incomplete | **MATCH** | 11.19 s |
+| prop_012 | unsat | safe-incomplete | **MATCH** | 10.63 s |
+| prop_013 | unsat | safe-incomplete | **MATCH** | 11.15 s |
+| prop_014 | unsat | safe-incomplete | **MATCH** | 11.19 s |
+| prop_015 | unsat | safe-incomplete | **MATCH** | 10.61 s |
+| prop_016 | unsat | safe-incomplete | **MATCH** | 10.24 s |
+| prop_017 | unsat | safe-incomplete | **MATCH** | 10.51 s |
+| prop_018 | unsat | safe-incomplete | **MATCH** | 10.67 s |
+| prop_019 | unsat | safe-incomplete | **MATCH** | 11.29 s |
+| prop_020 | unsat | safe-incomplete | **MATCH** | 10.54 s |
+| prop_021 | unsat | safe-incomplete | **MATCH** | 10.45 s |
+| prop_022 | unsat | safe-incomplete | **MATCH** | 11.11 s |
+| prop_023 | unsat | safe-incomplete | **MATCH** | 10.62 s |
+| prop_024 | unsat | safe-incomplete | **MATCH** | 10.26 s |
+| prop_025 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_026 | sat | unsafe-pgd | **MATCH** | 0.146 s |
+| prop_027 | sat | unsafe-pgd | **MATCH** | 0.067 s |
+| prop_028 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_029 | sat | unsafe-pgd | **MATCH** | 0.067 s |
+| prop_030 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_031 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_032 | sat | unsafe-pgd | **MATCH** | 0.082 s |
+| prop_033 | sat | unsafe-pgd | **MATCH** | 0.067 s |
+| prop_034 | sat | unsafe-pgd | **MATCH** | 0.127 s |
+| prop_035 | sat | unsafe-pgd | **MATCH** | 0.082 s |
+| prop_036 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_037 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_038 | sat | unsafe-pgd | **MATCH** | 0.048 s |
+| prop_039 | sat | unsafe-pgd | **MATCH** | 0.083 s |
+| prop_040 | sat | unsafe-pgd | **MATCH** | 0.048 s |
+| prop_041 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_042 | sat | unsafe-pgd | **MATCH** | 0.048 s |
+| prop_043 | sat | unsafe-pgd | **MATCH** | 0.126 s |
+| prop_044 | sat | unsafe-pgd | **MATCH** | 0.049 s |
+| prop_045 | sat | unsafe-pgd | **MATCH** | 0.068 s |
+| prop_046 | sat | unsafe-pgd | **MATCH** | 0.067 s |
+| prop_047 | sat | unsafe-pgd | **MATCH** | 0.048 s |
+| prop_048 | sat | unsafe-pgd | **MATCH** | 0.048 s |
+| prop_049 | sat | unsafe-pgd | **MATCH** | 0.047 s |
 
 ### Verdict key
 
@@ -182,7 +136,7 @@ proceeds without any model surgery.
 
 ---
 
-## 5. Summary Counts
+## 4. Summary Counts
 
 | Classification | Count |
 |---|---|
@@ -194,20 +148,20 @@ Breakdown by half:
 
 | Half | Instances | abcrown verdict | Classification |
 |---|---|---|---|
-| UNSAT (prop_000–024, h8, ε=0.005) | 25 | all `safe-incomplete` | 25 MATCH |
+| UNSAT (prop_000–024, h8, ε=1/255≈0.003922) | 25 | all `safe-incomplete` | 25 MATCH |
 | SAT (prop_025–049, h64, ε≈0.022) | 25 | all `unsafe-pgd` | 25 MATCH |
 
 Abcrown summary line (verbatim from run log):
 ```
 Problem instances count: 50 , total verified (safe/unsat): 25 , total falsified (unsafe/sat): 25 , timeout: 0
-mean time for ALL instances (total 50): 5.443 s
-mean time for verified SAFE instances (total 25): 10.820 s, max: 12.842 s
-mean time for verified UNSAFE instances (total 25): 0.065 s, max: 0.139 s
+mean time for ALL instances (total 50): 5.394 s
+mean time for verified SAFE instances (total 25): 10.716 s, max: 11.920 s
+mean time for verified UNSAFE instances (total 25): 0.072 s, max: 0.146 s
 ```
 
 ---
 
-## 6. Verdict
+## 5. Verdict
 
 **The benchmark runs end-to-end through the official alpha-beta-CROWN harness without errors or
 label conflicts.**
@@ -219,16 +173,17 @@ Key findings:
    The LSTM is represented in expanded form (Gemm + Sigmoid + Tanh + Mul + Slice) which
    alpha-beta-CROWN handles natively through auto_LiRPA primitives — no model surgery needed.
 
-2. **All 25 UNSAT labels confirmed.** alpha-CROWN certifies all 25 h8 instances at ε=0.005
-   in 9.9–12.8 s each. The `safe-incomplete` verdict means the incomplete verifier (alpha-CROWN
-   with 100 iterations) was sufficient; the BaB complete verifier was never needed. This is
-   consistent with the CROWN validation in `VALIDATION_EXTERNAL.md` (min margin +1.455 logits).
+2. **All 25 UNSAT labels confirmed.** alpha-CROWN certifies all 25 h8 instances at
+   ε = 1/255 ≈ 0.003922 (1 pixel level of perturbation) in 9.9–11.9 s each. The
+   `safe-incomplete` verdict means the incomplete verifier (alpha-CROWN with 100 iterations)
+   was sufficient; the BaB complete verifier was never needed. Consistent with the CROWN
+   validation in `VALIDATION_EXTERNAL.md` (min margin +3.188 logits).
 
 3. **All 25 SAT labels confirmed.** PGD finds a counterexample inside every h64 L∞ ball in
-   under 0.14 s. These are the same structural witnesses embedded at generation time;
+   under 0.15 s. These are the same structural witnesses embedded at generation time;
    PGD recovers them from the initialization.
 
-4. **Zero timeouts.** All 50 instances resolve within their 120 s budget; the slowest is 12.84 s.
+4. **Zero timeouts.** All 50 instances resolve within their 120 s budget; the slowest is 11.92 s.
 
 5. **Zero conflicts.** No UNSAT instance returned `unsafe` and no SAT instance returned `safe`.
    The benchmark is sound.
