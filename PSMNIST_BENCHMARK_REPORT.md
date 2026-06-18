@@ -65,8 +65,10 @@ The geometry:
 
 The 10% margin (×1.1) ensures the wrong-class witness is comfortably inside the ball, not just touching it. After 50 bisections the boundary is located to precision ≈ L∞(x0, x1) / 2⁵⁰ ≈ 0, so `L∞(x_test, b) ≈ delta = 0.02` for all instances, giving `eps = 1.1 × 0.02 = 0.022`. The tight range [0.021996, 0.022001] was confirmed by VERIFY_v2.md Task 4.
 
-All inputs are in [0,1] (/255 normalization). ε = 0.022 corresponds to ≈ 5.6 pixel levels of
-L∞ perturbation (5.61 = 0.022 × 255).
+All inputs are in [0,1] (/255 normalization). ε = 6/255 ≈ 0.023529 corresponds to exactly
+**6 pixel levels** of L∞ perturbation. generate.py stores this as the constant
+`EPS_SAT = 6/255` and snaps to it whenever the boundary distance d ≤ EPS_SAT (always true
+since d ≈ 0.020 < 0.023529).
 
 **Why h64 for SAT?** The large model has a well-trained decision boundary with sharp transitions. The binary search converges to a geometrically close boundary point, yielding a reasonably small ε (0.02 range). The small h8 model's decision boundary is poorly calibrated (83% accuracy) and much harder to falsify at meaningful ε values.
 

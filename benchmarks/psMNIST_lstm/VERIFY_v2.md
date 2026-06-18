@@ -71,31 +71,31 @@ evaluate the center point; (2) 500 uniform random samples inside the box.
 
 | Property | true\_cls | witness\_pred | in\_box | eps |
 |---|---|---|---|---|
-| prop_025 | 1 | 8 | ✓ | 0.022000 |
-| prop_026 | 1 | 5 | ✓ | 0.022000 |
-| prop_027 | 1 | 3 | ✓ | 0.022000 |
-| prop_028 | 1 | 4 | ✓ | 0.022000 |
-| prop_029 | 1 | 4 | ✓ | 0.022000 |
-| prop_030 | 6 | 8 | ✓ | 0.022000 |
-| prop_031 | 5 | 0 | ✓ | 0.022000 |
-| prop_032 | 6 | 8 | ✓ | 0.022000 |
-| prop_033 | 5 | 8 | ✓ | 0.022000 |
-| prop_034 | 5 | 0 | ✓ | 0.022000 |
-| prop_035 | 6 | 8 | ✓ | 0.022000 |
-| prop_036 | 5 | 0 | ✓ | 0.022000 |
-| prop_037 | 6 | 3 | ✓ | 0.022000 |
-| prop_038 | 5 | 8 | ✓ | 0.022000 |
-| prop_039 | 6 | 0 | ✓ | 0.022000 |
-| prop_040 | 0 | 8 | ✓ | 0.022000 |
-| prop_041 | 4 | 0 | ✓ | 0.022000 |
-| prop_042 | 4 | 7 | ✓ | 0.022000 |
-| prop_043 | 4 | 0 | ✓ | 0.022000 |
-| prop_044 | 0 | 5 | ✓ | 0.022000 |
-| prop_045 | 4 | 7 | ✓ | 0.022000 |
-| prop_046 | 4 | 8 | ✓ | 0.022000 |
-| prop_047 | 0 | 8 | ✓ | 0.022000 |
-| prop_048 | 0 | 8 | ✓ | 0.022000 |
-| prop_049 | 7 | 9 | ✓ | 0.022000 |
+| prop_025 | 1 | 8 | ✓ | 0.023529 |
+| prop_026 | 1 | 5 | ✓ | 0.023529 |
+| prop_027 | 1 | 3 | ✓ | 0.023529 |
+| prop_028 | 1 | 4 | ✓ | 0.023529 |
+| prop_029 | 1 | 4 | ✓ | 0.023529 |
+| prop_030 | 6 | 8 | ✓ | 0.023529 |
+| prop_031 | 5 | 0 | ✓ | 0.023529 |
+| prop_032 | 6 | 8 | ✓ | 0.023529 |
+| prop_033 | 5 | 8 | ✓ | 0.023529 |
+| prop_034 | 5 | 0 | ✓ | 0.023529 |
+| prop_035 | 6 | 8 | ✓ | 0.023529 |
+| prop_036 | 5 | 0 | ✓ | 0.023529 |
+| prop_037 | 6 | 3 | ✓ | 0.023529 |
+| prop_038 | 5 | 8 | ✓ | 0.023529 |
+| prop_039 | 6 | 0 | ✓ | 0.023529 |
+| prop_040 | 0 | 8 | ✓ | 0.023529 |
+| prop_041 | 4 | 0 | ✓ | 0.023529 |
+| prop_042 | 4 | 7 | ✓ | 0.023529 |
+| prop_043 | 4 | 0 | ✓ | 0.023529 |
+| prop_044 | 0 | 5 | ✓ | 0.023529 |
+| prop_045 | 4 | 7 | ✓ | 0.023529 |
+| prop_046 | 4 | 8 | ✓ | 0.023529 |
+| prop_047 | 0 | 8 | ✓ | 0.023529 |
+| prop_048 | 0 | 8 | ✓ | 0.023529 |
+| prop_049 | 7 | 9 | ✓ | 0.023529 |
 
 All witnesses satisfy the L∞ box constraint to within 1e-7 (numerical tolerance from float32
 precision in VNN-LIB parsing). The center of each SAT ball (`x_test`) is the concrete witness
@@ -150,9 +150,11 @@ generate.py output log.
 **Method**: Compute `eps = max((ub[i] - lb[i]) / 2)` from the VNN-LIB box bounds for each SAT
 property.
 
-**Result**: All 25 SAT instances have `eps = 0.022000` (to 6 decimal places). The near-uniformity
-follows from `eps = 1.1 × delta = 1.1 × 0.02 = 0.022`; after 50 bisection steps the residual
-`|x_test − b|_∞ ≈ delta` to precision `|x0 − x1|_∞ / 2⁵⁰ ≈ 0`.
+**Result**: All 25 SAT instances have `eps = 6/255 ≈ 0.02352941` (exact). The boundary witness
+`b` is at L∞ distance `d ≈ 0.020000` from `x_test` for all instances (boundary search converges
+to precision `|x0 − x1|_∞ / 2⁵⁰ ≈ 0`, dominated by `SAT_DELTA = 0.02`). Since `d < 6/255`,
+`b` is strictly inside the 6/255 ball; generate.py snaps eps to `EPS_SAT = 6/255` exactly.
 
-In pixel terms: ε_SAT = 0.022 ≈ 5.6/255 pixel levels (approximately 6 pixel levels of
-adversarial perturbation for the SAT instances, vs exactly 1 pixel level for the UNSAT instances).
+In pixel terms:
+- ε_UNSAT = 1/255 ≈ 0.003922 → **exactly 1 pixel level** of L∞ perturbation
+- ε_SAT   = 6/255 ≈ 0.023529 → **exactly 6 pixel levels** of L∞ perturbation

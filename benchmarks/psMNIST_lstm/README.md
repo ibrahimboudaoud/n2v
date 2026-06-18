@@ -20,7 +20,7 @@ Requires: `torch torchvision onnx numpy`
 | Property index | Model | Result | Epsilon |
 |---|---|---|---|
 | prop_000 … prop_024 | `lstm_psMNIST_h8.onnx` | UNSAT | 1/255 ≈ 0.003922 (1 pixel level, fixed) |
-| prop_025 … prop_049 | `lstm_psMNIST_h64.onnx` | SAT | 0.022 ≈ 5.6/255 (effectively fixed) |
+| prop_025 … prop_049 | `lstm_psMNIST_h64.onnx` | SAT | 6/255 ≈ 0.023529 (6 pixel levels, fixed) |
 
 Image `i` maps to `prop_i` (UNSAT) and `prop_{i+25}` (SAT). Only **(model, epsilon)** vary between the two halves — image identity is held constant. This removes the confound present in the v1 design (`benchmarks/psMNIST_lstm_v1_confounded/`) where model, epsilon, and image all changed together.
 
@@ -41,10 +41,10 @@ k plus-or-minus pixel levels of perturbation (standard VNN-COMP image benchmark 
 - **UNSAT ε = 1/255 ≈ 0.003922**: fixed constant (`EPS_UNSAT` in `generate.py`). Exactly
   **1 pixel level** of L∞ perturbation. The h8 model is trained with IBP regularisation
   (CROWN-IBP style) to be certifiable at this epsilon.
-- **SAT ε = 0.022 (effectively fixed)**: ≈ 5.6 pixel levels. Computed as
-  `1.1 × L∞(x_test, boundary_point)` via 50-step binary search (`SAT_BISECT_STEPS`,
-  `SAT_DELTA` in `generate.py`). After 50 bisections `L∞(x_test, boundary) ≈ delta = 0.02`,
-  so `eps = 1.1 × 0.02 = 0.022` for all 25 instances.
+- **SAT ε = 6/255 ≈ 0.023529** (fixed constant `EPS_SAT`): exactly **6 pixel levels**.
+  The boundary search locates the decision boundary at d ≈ 0.020 from `x_test` for all
+  instances. Since d < 6/255, generate.py snaps eps to `EPS_SAT = 6/255` exactly.
+  The adversarial witness is at distance ≈ 0.020 from the center — comfortably inside the ball.
 
 The permutation index is stored in `norm_params.npz` (only the permutation — no mean/std needed).
 
@@ -82,7 +82,7 @@ Re-running `python generate.py` from a clean directory produces bit-identical ON
 ## Verification status
 
 - **UNSAT (25)**: certified by n2v IBP-regularised training at generation time; independently confirmed 25/25 by auto_LiRPA 0.7.2 CROWN (min margin +3.188 logits, prop_024); end-to-end confirmed by alpha-beta-CROWN 0.7.0 harness (50/50 MATCH, 0 timeout). See `VALIDATION_EXTERNAL.md` and `VALIDATION_ABCROWN.md`.
-- **SAT (25)**: concrete witnesses confirmed inside every L∞ ball by file-only inspection; confirmed by alpha-beta-CROWN PGD (<0.15 s each). See `VERIFY_v2.md`.
+- **SAT (25)**: concrete witnesses confirmed inside every 6/255 ball; confirmed by alpha-beta-CROWN PGD (<0.15 s each). See `VERIFY_v2.md`.
 
 ## Files
 

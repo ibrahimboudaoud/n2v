@@ -30,11 +30,19 @@ Shared-image-pool design (v2):
   Only (model, epsilon) vary between the two halves — image identity is
   held constant, removing the confound present in the v1 design.
 
+Normalization and epsilon:
+  Inputs are normalised by dividing by 255 only (plain /255, no Z-score).
+  Inputs live in [0,1].  Epsilon is expressed in pixel levels:
+    EPS_UNSAT = 1/255 ≈ 0.003922  →  1 pixel level  (UNSAT half)
+    EPS_SAT   = 6/255 ≈ 0.023529  →  6 pixel levels  (SAT half)
+  The h8 model is trained with IBP regularisation (CROWN-IBP style,
+  lambda 0→1 over epochs 11–40) to achieve certifiability at EPS_UNSAT.
+
 Pipeline stages:
   1. Real data loading (MNIST via torchvision)
-  2. LSTM training (two models)
+  2. LSTM training (two models — h8 with IBP reg, h64 standard)
   3. ONNX export + cleanup (Identity removal, constant folding)
-  4. Shared pool selection (IBP + boundary-search joint filter)
+  4. Shared pool selection (IBP + boundary-search joint filter, max 5/class)
   5. VNN-LIB 2.0 property writing (multi-class disjunction)
   6. n2v Box reachability verification (dry run, all 50 instances)
 
@@ -77,8 +85,9 @@ BATCH_SIZE   = 256
 LR           = 1e-3
 
 EPS_UNSAT        = 1/255   # L-inf ball radius for UNSAT = 1 pixel level in [0,1] space
+EPS_SAT          = 6/255   # L-inf ball radius for SAT   = 6 pixel levels in [0,1] space
 SAT_BISECT_STEPS = 50     # number of bisection steps in boundary search
-SAT_DELTA        = 0.02   # step size deeper into true class after bisection
+SAT_DELTA        = 0.02   # step size deeper into true class after bisection (must be < EPS_SAT)
 TIMEOUT          = 120    # VNN-COMP per-instance timeout (seconds)
 
 N_POOL = 25  # source images shared by both UNSAT and SAT halves; total = 2*N_POOL
@@ -743,7 +752,12 @@ def main():
         if result is None:
             continue
 
-        x_test, eps_sat, true_cls = result
+        x_test, eps_raw, true_cls = result
+        # Snap SAT eps to clean k/255 value if the witness d = eps_raw/1.1 ≤ EPS_SAT.
+        # The witness b satisfies |x_test - b|.max() = eps_raw / 1.1;
+        # if that distance ≤ EPS_SAT, b stays inside the larger clean ball.
+        d_witness = eps_raw / 1.1
+        eps_sat = EPS_SAT if d_witness <= EPS_SAT else eps_raw
         pairs.append((int(idx), x, x_test, eps_sat, tc))
         class_counts[tc] = class_counts.get(tc, 0) + 1
         print(f"  [{len(pairs):2d}/{N_POOL}] test_idx={idx:5d}  cls={tc}"
@@ -770,7 +784,7 @@ def main():
         unsat_indices.append(idx)
         prop_idx += 1
 
-    print(f"Writing SAT properties (h64, per-instance boundary-search eps) …")
+    print(f"Writing SAT properties (h64, eps={EPS_SAT:.8f} = 6/255 = 6 pixel levels) …")
     for (idx, x, x_test, eps_sat, tc) in pairs:
         pname = f"prop_{prop_idx:03d}.vnnlib"
         write_vnnlib(f"vnnlib/{pname}", x_test, eps_sat, tc)
@@ -796,8 +810,8 @@ def main():
 
     print(f"\n{'─'*60}")
     print(f"Total instances : {total}  ({n_unsat} UNSAT / {n_sat} SAT)")
-    print(f"Models          : onnx/{onnx_small}  (UNSAT, eps={EPS_UNSAT})")
-    print(f"                  onnx/{onnx_large}  (SAT,   eps per boundary search)")
+    print(f"Models          : onnx/{onnx_small}  (UNSAT, eps=1/255={EPS_UNSAT:.8f})")
+    print(f"                  onnx/{onnx_large}  (SAT,   eps=6/255={EPS_SAT:.8f})")
     print(f"Properties      : vnnlib/  ({total} files)")
     print(f"Instance list   : instances.csv")
     print(f"Ground truth    : ground_truth.csv")

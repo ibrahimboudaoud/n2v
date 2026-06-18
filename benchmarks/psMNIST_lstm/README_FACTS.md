@@ -86,14 +86,15 @@ CSV format:
 
 ## 5. Epsilon Values
 
-| Model | ε | Pixel interpretation | Derivation |
-|---|---|---|---|
-| h8 (UNSAT) | **1/255 ≈ 0.003922** (fixed constant) | Exactly **1 pixel level** of L∞ perturbation | IBP-certifiable at generation time; pre-screened |
-| h64 (SAT) | **0.022 (effectively fixed)** | ≈ **5.6 pixel levels** | `1.1 × L∞(x_test, boundary)` from 50-step bisection with delta=0.02 |
+| Model | ε | k/255 form | Pixel interpretation | Derivation |
+|---|---|---|---|---|
+| h8 (UNSAT) | **1/255 ≈ 0.003922** | k=1 | Exactly **1 pixel level** of L∞ perturbation | IBP-certifiable; fixed constant `EPS_UNSAT` |
+| h64 (SAT) | **6/255 ≈ 0.023529** | k=6 | Exactly **6 pixel levels** of L∞ perturbation | Snapped: boundary `d≈0.02 < 6/255`; fixed constant `EPS_SAT` |
 
-Verified by VERIFY_v2.md Task 4: all 25 SAT instances have eps=0.022000 (uniform).
-The near-uniformity follows from `eps = 1.1 × delta = 1.1 × 0.02 = 0.022`; after 50 bisections
-`L∞(x_test, boundary) ≈ delta` to precision L∞(x0, x1) / 2⁵⁰ ≈ 0.
+Both epsilons are exact k/255 values stored as constants in `generate.py` (`EPS_UNSAT = 1/255`,
+`EPS_SAT = 6/255`). The SAT eps is derived by: boundary search finds d ≈ 0.020 for all
+instances (dominated by `SAT_DELTA = 0.02`); since `d < 6/255`, generate.py snaps to `EPS_SAT`.
+Verified by VERIFY_v2.md Task 4: tightest margin = 6/255 − 0.020 = 0.003529.
 
 ---
 
@@ -134,8 +135,8 @@ reconstruct to their source image with L∞ ≤ 3 × 10⁻⁸ (format-rounding r
 | Verifier | Method | Result | Min margin | Reference |
 |---|---|---|---|---|
 | n2v IBP (CROWN-IBP regularised) | Interval bound propagation | 25/25 certified | — | generate.py at generation time |
-| auto_LiRPA 0.7.2 | CROWN (linear relaxation) | **25/25 CONFIRMED** | +3.188 logits (prop_024) | VALIDATION_EXTERNAL.md |
-| alpha-beta-CROWN 0.7.0 | Full harness (abcrown.py, CROWN mode) | **25/25 safe-incomplete** | — | VALIDATION_ABCROWN.md |
+| auto_LiRPA 0.7.2 | CROWN (linear relaxation) | **25/25 CONFIRMED** | +3.188 logits (prop_024) | VALIDATION_EXTERNAL.md (2026-06-18) |
+| alpha-beta-CROWN 0.7.0 | Full harness (abcrown.py, CROWN mode) | **25/25 safe-incomplete** | — | VALIDATION_ABCROWN.md (2026-06-18) |
 
 CROWN is independent of n2v IBP: it applies linear relaxation (BoundMul uses McCormick
 envelopes for bilinear terms), not interval arithmetic. Positive margins confirm no systematic
