@@ -49,7 +49,7 @@ Pipeline stages:
   1. Real data loading (MNIST via torchvision)
   2. LSTM training (two models — h8 with IBP reg, h64 standard)
   3. ONNX export + cleanup (Identity removal, constant folding)
-  4. Shared pool selection (IBP + boundary-search joint filter, max 5/class)
+  4. Shared pool selection (IBP + boundary-search joint filter, all-10 classes, max 3/class)
   5. VNN-LIB 2.0 property writing (multi-class disjunction)
   6. n2v Box reachability verification (dry run, all 50 instances)
 
@@ -745,18 +745,21 @@ def main():
     # x1_pool for boundary search: all correctly-classified other-class images on h64
     correct_l = preds_l == y_te
 
-    # Collect paired instances: each entry is (test_idx, x_unsat, x_sat, eps_sat, true_cls)
-    MAX_PER_CLASS = 5   # cap per digit class to ensure class diversity
-    pairs         = []
-    class_counts  = {}
-    print(f"\nBuilding shared image pool (target N_POOL={N_POOL}, max {MAX_PER_CLASS}/class) …")
+    # Collect paired instances (two-phase, all-10 design):
+    #   Phase A: collect up to MAX_PER_CLASS certified+SAT pairs per class.
+    #   Phase B: mandatory 1 from each class, then fill 15 by descending margin.
+    MAX_PER_CLASS = 3   # cap per class; 3×10=30 capacity covers N_POOL=25
+
+    per_class = {cls: [] for cls in range(NUM_CLASSES)}  # cls → [(margin, idx, x, x_test, eps_sat, tc)]
+    print(f"\nBuilding shared image pool "
+          f"(target N_POOL={N_POOL}, all 10 classes, max {MAX_PER_CLASS}/class) …")
+
     for idx in candidates:
-        if len(pairs) >= N_POOL:
-            break
+        if all(len(v) >= MAX_PER_CLASS for v in per_class.values()):
+            break  # all classes have their full quota
         x  = X_te[idx]
         tc = int(y_te[idx])
-
-        if class_counts.get(tc, 0) >= MAX_PER_CLASS:
+        if len(per_class[tc]) >= MAX_PER_CLASS:
             continue
 
         # UNSAT filter: IBP must certify the h8 model at EPS_UNSAT
@@ -770,15 +773,57 @@ def main():
             continue
 
         x_test, eps_raw, true_cls = result
-        # Snap SAT eps to clean k/255 value if the witness d = eps_raw/1.1 ≤ EPS_SAT.
-        # The witness b satisfies |x_test - b|.max() = eps_raw / 1.1;
-        # if that distance ≤ EPS_SAT, b stays inside the larger clean ball.
+        # Snap SAT eps to clean k/255 value if witness distance d ≤ EPS_SAT.
+        # d = eps_raw/1.1; since bisection converges to d≈SAT_DELTA=0.02 < 6/255,
+        # the snap fires for all instances.
         d_witness = eps_raw / 1.1
+        if d_witness > EPS_SAT:
+            print(f"  WARNING cls={tc} idx={idx}: d_witness={d_witness:.6f} > "
+                  f"EPS_SAT={EPS_SAT:.6f} — using raw eps {eps_raw:.6f}")
         eps_sat = EPS_SAT if d_witness <= EPS_SAT else eps_raw
-        pairs.append((int(idx), x, x_test, eps_sat, tc))
-        class_counts[tc] = class_counts.get(tc, 0) + 1
-        print(f"  [{len(pairs):2d}/{N_POOL}] test_idx={idx:5d}  cls={tc}"
-              f"  eps_unsat={EPS_UNSAT:.4f}  eps_sat={eps_sat:.4f}")
+
+        per_class[tc].append((float(margin_s[idx]), int(idx), x, x_test, eps_sat, tc))
+        total_so_far = sum(len(v) for v in per_class.values())
+        print(f"  cls={tc}  idx={idx:5d}  margin={margin_s[idx]:.3f}"
+              f"  d={d_witness:.4f}  eps_sat={eps_sat:.6f}"
+              f"  [{len(per_class[tc])}/{MAX_PER_CLASS}]  total={total_so_far}")
+
+    # Abort if any class has zero certifiable+SAT instances
+    missing = [cls for cls in range(NUM_CLASSES) if len(per_class[cls]) == 0]
+    if missing:
+        for cls in missing:
+            print(f"\nSTOP: class {cls} has zero certifiable+SAT instances at "
+                  f"eps={EPS_UNSAT:.6f} / {EPS_SAT:.6f}.")
+        raise SystemExit("Cannot build all-10 pool — see missing classes above.")
+
+    # Phase B: build ordered pairs
+    #   Mandatory: 1 from each class (highest margin)
+    pairs        = []
+    class_counts = {cls: 0 for cls in range(NUM_CLASSES)}
+    for cls in range(NUM_CLASSES):
+        _, idx, x, x_test, eps_sat, tc = per_class[cls][0]
+        pairs.append((idx, x, x_test, eps_sat, tc))
+        class_counts[cls] = 1
+    #   Fill remaining slots by descending margin, cap MAX_PER_CLASS
+    remaining = []
+    for cls in range(NUM_CLASSES):
+        for entry in per_class[cls][1:]:   # skip the one already taken
+            remaining.append(entry)
+    remaining.sort(key=lambda e: e[0], reverse=True)
+    for entry in remaining:
+        if len(pairs) >= N_POOL:
+            break
+        margin, idx, x, x_test, eps_sat, tc = entry
+        if class_counts[tc] >= MAX_PER_CLASS:
+            continue
+        pairs.append((idx, x, x_test, eps_sat, tc))
+        class_counts[tc] += 1
+
+    # Print final pool
+    print(f"\nFinal pool ({len(pairs)} pairs):")
+    for i, (idx, x, x_test, eps_sat, tc) in enumerate(pairs):
+        print(f"  [{i:2d}] test_idx={idx:5d}  cls={tc}  eps_sat={eps_sat:.6f}")
+    print(f"  Class counts: {dict(sorted(class_counts.items()))}")
 
     if len(pairs) < N_POOL:
         print(f"\nWARNING: only {len(pairs)}/{N_POOL} pairs found. "
