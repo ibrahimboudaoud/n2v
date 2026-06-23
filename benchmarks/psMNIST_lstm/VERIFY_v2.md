@@ -118,7 +118,7 @@ Check that `true_cls` is consistent between each UNSAT prop_k and its SAT counte
 | prop_003 | prop_028 | 1 | ✓ |
 | prop_004 | prop_029 | 1 | ✓ |
 | prop_005 | prop_030 | 6 | ✓ |
-| prop_006 | prop_031 | 5 | ✓ |
+| prop_006 | prop_031 | 5 | ✓ 
 | prop_007 | prop_032 | 6 | ✓ |
 | prop_008 | prop_033 | 5 | ✓ |
 | prop_009 | prop_034 | 5 | ✓ |
