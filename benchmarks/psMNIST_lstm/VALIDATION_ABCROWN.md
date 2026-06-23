@@ -1,7 +1,7 @@
 # End-to-End Validation Report — α,β-CROWN Full Harness
 
-**Date**: 2026-06-18  
-**Benchmark**: `benchmarks/psMNIST_lstm/` — 50 instances (25 UNSAT prop_000–024, 25 SAT prop_025–049)  
+**Date**: 2026-06-23
+**Benchmark**: `benchmarks/psMNIST_lstm/` — 50 instances (25 UNSAT prop_000–024, 25 SAT prop_025–049)
 **Task**: smoke-test the complete alpha-beta-CROWN pipeline (`abcrown.py`), the same entry point
 used by VNN-COMP organizers, against all 50 instances via CSV mode.
 
@@ -29,11 +29,11 @@ table.
 | **auto_LiRPA** | 0.7.2 |
 | **onnxruntime** | 1.26.0 |
 | **torch** | 2.12.0 |
-| **Date run** | 2026-06-18 |
+| **Date run** | 2026-06-23 |
 
 ### Config used
 
-File: `/tmp/psmnist_abcrown.yaml`
+File: `/tmp/psmnist_abcrown_r392.yaml`
 
 ```yaml
 general:
@@ -51,7 +51,7 @@ bab:
 cd ~/abcrown_tool/complete_verifier
 conda run --no-capture-output -n abcrown \
   env PYTHONPATH=/Users/ibrahimboudaoud/abcrown_tool/complete_verifier \
-  python abcrown.py --config /tmp/psmnist_abcrown.yaml
+  python abcrown.py --config /tmp/psmnist_abcrown_r392.yaml
 ```
 
 ---
@@ -75,56 +75,56 @@ proceeds without any model surgery.
 
 | Instance | GT label | abcrown verdict | Classification | Runtime |
 |---|---|---|---|---|
-| prop_000 | unsat | safe-incomplete | **MATCH** | 12.39 s |
-| prop_001 | unsat | safe-incomplete | **MATCH** | 11.25 s |
-| prop_002 | unsat | safe-incomplete | **MATCH** | 11.04 s |
-| prop_003 | unsat | safe-incomplete | **MATCH** | 12.22 s |
-| prop_004 | unsat | safe-incomplete | **MATCH** | 11.58 s |
-| prop_005 | unsat | safe-incomplete | **MATCH** | 11.14 s |
-| prop_006 | unsat | safe-incomplete | **MATCH** | 10.04 s |
-| prop_007 | unsat | safe-incomplete | **MATCH** | 10.42 s |
-| prop_008 | unsat | safe-incomplete | **MATCH** | 11.36 s |
-| prop_009 | unsat | safe-incomplete | **MATCH** | 10.93 s |
-| prop_010 | unsat | safe-incomplete | **MATCH** | 10.26 s |
-| prop_011 | unsat | safe-incomplete | **MATCH** | 10.12 s |
-| prop_012 | unsat | safe-incomplete | **MATCH** | 11.20 s |
-| prop_013 | unsat | safe-incomplete | **MATCH** | 13.34 s |
-| prop_014 | unsat | safe-incomplete | **MATCH** | 12.72 s |
-| prop_015 | unsat | safe-incomplete | **MATCH** | 10.63 s |
-| prop_016 | unsat | safe-incomplete | **MATCH** | 12.10 s |
-| prop_017 | unsat | safe-incomplete | **MATCH** | 10.59 s |
-| prop_018 | unsat | safe-incomplete | **MATCH** | 13.61 s |
-| prop_019 | unsat | safe-incomplete | **MATCH** | 12.95 s |
-| prop_020 | unsat | safe-incomplete | **MATCH** | 10.66 s |
-| prop_021 | unsat | safe-incomplete | **MATCH** | 11.53 s |
-| prop_022 | unsat | safe-incomplete | **MATCH** | 10.24 s |
-| prop_023 | unsat | safe-incomplete | **MATCH** | 13.76 s |
-| prop_024 | unsat | safe-incomplete | **MATCH** | 12.71 s |
-| prop_025 | sat | unsafe-pgd | **MATCH** | 0.070 s |
-| prop_026 | sat | unsafe-pgd | **MATCH** | 0.066 s |
-| prop_027 | sat | unsafe-pgd | **MATCH** | 0.068 s |
-| prop_028 | sat | unsafe-pgd | **MATCH** | 0.066 s |
-| prop_029 | sat | unsafe-pgd | **MATCH** | 0.067 s |
-| prop_030 | sat | unsafe-pgd | **MATCH** | 0.067 s |
-| prop_031 | sat | unsafe-pgd | **MATCH** | 0.069 s |
-| prop_032 | sat | unsafe-pgd | **MATCH** | 0.066 s |
-| prop_033 | sat | unsafe-pgd | **MATCH** | 0.143 s |
-| prop_034 | sat | unsafe-pgd | **MATCH** | 0.072 s |
-| prop_035 | sat | unsafe-pgd | **MATCH** | 0.089 s |
-| prop_036 | sat | unsafe-pgd | **MATCH** | 0.072 s |
-| prop_037 | sat | unsafe-pgd | **MATCH** | 0.083 s |
-| prop_038 | sat | unsafe-pgd | **MATCH** | 0.060 s |
-| prop_039 | sat | unsafe-pgd | **MATCH** | 0.096 s |
-| prop_040 | sat | unsafe-pgd | **MATCH** | 0.052 s |
-| prop_041 | sat | unsafe-pgd | **MATCH** | 0.073 s |
-| prop_042 | sat | unsafe-pgd | **MATCH** | 0.131 s |
+| prop_000 | unsat | safe-incomplete | **MATCH** | 10.55 s |
+| prop_001 | unsat | safe-incomplete | **MATCH** | 10.32 s |
+| prop_002 | unsat | safe-incomplete | **MATCH** | 10.15 s |
+| prop_003 | unsat | safe-incomplete | **MATCH** | 11.57 s |
+| prop_004 | unsat | safe-incomplete | **MATCH** | 10.44 s |
+| prop_005 | unsat | safe-incomplete | **MATCH** | 10.20 s |
+| prop_006 | unsat | safe-incomplete | **MATCH** | 9.83 s |
+| prop_007 | unsat | safe-incomplete | **MATCH** | 10.31 s |
+| prop_008 | unsat | safe-incomplete | **MATCH** | 11.86 s |
+| prop_009 | unsat | safe-incomplete | **MATCH** | 10.75 s |
+| prop_010 | unsat | safe-incomplete | **MATCH** | 10.33 s |
+| prop_011 | unsat | safe-incomplete | **MATCH** | 10.24 s |
+| prop_012 | unsat | safe-incomplete | **MATCH** | 10.71 s |
+| prop_013 | unsat | safe-incomplete | **MATCH** | 11.85 s |
+| prop_014 | unsat | safe-incomplete | **MATCH** | 11.27 s |
+| prop_015 | unsat | safe-incomplete | **MATCH** | 10.44 s |
+| prop_016 | unsat | safe-incomplete | **MATCH** | 10.42 s |
+| prop_017 | unsat | safe-incomplete | **MATCH** | 10.56 s |
+| prop_018 | unsat | safe-incomplete | **MATCH** | 11.87 s |
+| prop_019 | unsat | safe-incomplete | **MATCH** | 11.19 s |
+| prop_020 | unsat | safe-incomplete | **MATCH** | 10.45 s |
+| prop_021 | unsat | safe-incomplete | **MATCH** | 10.42 s |
+| prop_022 | unsat | safe-incomplete | **MATCH** | 10.63 s |
+| prop_023 | unsat | safe-incomplete | **MATCH** | 11.93 s |
+| prop_024 | unsat | safe-incomplete | **MATCH** | 11.17 s |
+| prop_025 | sat | unsafe-pgd | **MATCH** | 0.044 s |
+| prop_026 | sat | unsafe-pgd | **MATCH** | 0.061 s |
+| prop_027 | sat | unsafe-pgd | **MATCH** | 0.074 s |
+| prop_028 | sat | unsafe-pgd | **MATCH** | 0.061 s |
+| prop_029 | sat | unsafe-pgd | **MATCH** | 0.074 s |
+| prop_030 | sat | unsafe-pgd | **MATCH** | 0.061 s |
+| prop_031 | sat | unsafe-pgd | **MATCH** | 0.074 s |
+| prop_032 | sat | unsafe-pgd | **MATCH** | 0.062 s |
+| prop_033 | sat | unsafe-pgd | **MATCH** | 0.138 s |
+| prop_034 | sat | unsafe-pgd | **MATCH** | 0.063 s |
+| prop_035 | sat | unsafe-pgd | **MATCH** | 0.080 s |
+| prop_036 | sat | unsafe-pgd | **MATCH** | 0.064 s |
+| prop_037 | sat | unsafe-pgd | **MATCH** | 0.082 s |
+| prop_038 | sat | unsafe-pgd | **MATCH** | 0.081 s |
+| prop_039 | sat | unsafe-pgd | **MATCH** | 0.064 s |
+| prop_040 | sat | unsafe-pgd | **MATCH** | 0.077 s |
+| prop_041 | sat | unsafe-pgd | **MATCH** | 0.078 s |
+| prop_042 | sat | unsafe-pgd | **MATCH** | 0.141 s |
 | prop_043 | sat | unsafe-pgd | **MATCH** | 0.081 s |
-| prop_044 | sat | unsafe-pgd | **MATCH** | 0.048 s |
-| prop_045 | sat | unsafe-pgd | **MATCH** | 0.074 s |
-| prop_046 | sat | unsafe-pgd | **MATCH** | 0.073 s |
-| prop_047 | sat | unsafe-pgd | **MATCH** | 0.048 s |
-| prop_048 | sat | unsafe-pgd | **MATCH** | 0.050 s |
-| prop_049 | sat | unsafe-pgd | **MATCH** | 0.049 s |
+| prop_044 | sat | unsafe-pgd | **MATCH** | 0.081 s |
+| prop_045 | sat | unsafe-pgd | **MATCH** | 0.064 s |
+| prop_046 | sat | unsafe-pgd | **MATCH** | 0.066 s |
+| prop_047 | sat | unsafe-pgd | **MATCH** | 0.043 s |
+| prop_048 | sat | unsafe-pgd | **MATCH** | 0.043 s |
+| prop_049 | sat | unsafe-pgd | **MATCH** | 0.065 s |
 
 ### Verdict key
 
@@ -154,9 +154,9 @@ Breakdown by half:
 Abcrown summary line (verbatim from run log):
 ```
 Problem instances count: 50 , total verified (safe/unsat): 25 , total falsified (unsafe/sat): 25 , timeout: 0
-mean time for ALL instances (total 50): 5.813 s
-mean time for verified SAFE instances (total 25): 11.552 s, max: 13.759 s
-mean time for verified UNSAFE instances (total 25): 0.073 s, max: 0.143 s
+mean time for ALL instances (total 50): 5.426 s
+mean time for verified SAFE instances (total 25): 10.779 s, max: 11.929 s
+mean time for verified UNSAFE instances (total 25): 0.073 s, max: 0.141 s
 ```
 
 ---
@@ -174,16 +174,16 @@ Key findings:
    alpha-beta-CROWN handles natively through auto_LiRPA primitives — no model surgery needed.
 
 2. **All 25 UNSAT labels confirmed.** alpha-CROWN certifies all 25 h8 instances at
-   ε = 1/255 ≈ 0.003922 (1 pixel level of perturbation) in 10.0–13.8 s each. The
+   ε = 1/255 ≈ 0.003922 (1 pixel level of perturbation) in 9.8–11.9 s each. The
    `safe-incomplete` verdict means the incomplete verifier (alpha-CROWN with 100 iterations)
    was sufficient; the BaB complete verifier was never needed. Consistent with the CROWN
-   validation in `VALIDATION_EXTERNAL.md` (min margin +3.188 logits).
+   validation in `VALIDATION_EXTERNAL.md` (min margin +4.317 logits).
 
 3. **All 25 SAT labels confirmed.** PGD finds a counterexample inside every h64 L∞ ball
    (at ε = 6/255 ≈ 0.023529) in under 0.15 s. The adversarial witnesses are at distance
    ≈ 0.020 from the center — well inside the 6/255 ball (margin ≈ 0.0035).
 
-4. **Zero timeouts.** All 50 instances resolve within their 120 s budget; the slowest is 11.92 s.
+4. **Zero timeouts.** All 50 instances resolve within their 120 s budget; the slowest is 11.93 s.
 
 5. **Zero conflicts.** No UNSAT instance returned `unsafe` and no SAT instance returned `safe`.
    The benchmark is sound.

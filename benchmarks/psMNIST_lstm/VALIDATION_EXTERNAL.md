@@ -1,7 +1,7 @@
-# External UNSAT Validation Report — psMNIST_lstm v3
+# External UNSAT Validation Report — psMNIST_lstm v3 random-392
 
-**Date**: 2026-06-17  
-**Benchmark**: `benchmarks/psMNIST_lstm/` — 25 UNSAT instances, `prop_000–prop_024` on `lstm_psMNIST_h8.onnx`  
+**Date**: 2026-06-23
+**Benchmark**: `benchmarks/psMNIST_lstm/` — 25 UNSAT instances, `prop_000–prop_024` on `lstm_psMNIST_h8.onnx`
 **Task**: confirm or refute the 25 UNSAT labels using a sound verifier independent of n2v's IBP
 
 ---
@@ -28,7 +28,8 @@
 | Python | 3.11.15 |
 | OS / Hardware | macOS 15.2, Apple Silicon arm64 (CPU only) |
 | Conda env | `abcrown` (Python 3.11) |
-| Date run | 2026-06-17 |
+| Date run | 2026-06-23 |
+| Script | `validate_crown_random392.py` |
 
 ### Why CROWN is a sound, independent check
 
@@ -70,9 +71,6 @@ onnx2torch.convert("lstm_psMNIST_h8.onnx")
 
 auto_LiRPA.BoundedModule(model, dummy, device='cpu')
   → BoundedModule wrapped successfully  ✓
-
-CROWN smoke-test on dummy input: OK
-  → output lb = [-0.118, 7.312, 1.311, ...]  (finite, non-trivial)  ✓
 ```
 
 Warnings emitted by onnx2torch (`UserWarning: non-writable tensor`, `TracerWarning: Converting
@@ -87,10 +85,10 @@ dimension`) are cosmetic; they do not affect bound computation soundness.
 
 ```python
 METHOD    = "CROWN"      # linear relaxation bounds
-TIMEOUT_S = 120.0        # per-instance timeout (matches instances.csv)
 
 # For each prop_k:
-lb_np, ub_np, true_cls = parse_vnnlib(f"vnnlib/prop_{k:03d}.vnnlib")
+lb_np, ub_np, true_cls = parse_vnnlib_v2(f"vnnlib/prop_{k:03d}.vnnlib")
+# (assert (>= X_i val)) → lb; (assert (<= X_i val)) → ub
 x_lb  = torch.tensor(lb_np).unsqueeze(0)
 x_ub  = torch.tensor(ub_np).unsqueeze(0)
 x_ctr = (x_lb + x_ub) / 2.0
@@ -99,8 +97,7 @@ ptb = PerturbationLpNorm(norm=np.inf, x_L=x_lb, x_U=x_ub)
 bt  = BoundedTensor(x_ctr, ptb)
 lb_out, ub_out = bounded_model.compute_bounds(x=(bt,), method="CROWN")
 
-certified = all(lb_out[0, true_cls] > ub_out[0, j]
-                for j in range(10) if j != true_cls)
+certified = lb_out[0, true_cls] > ub_out[0, j].max()  # j ≠ true_cls
 ```
 
 Box bounds were read directly from the VNN-LIB files — not re-derived from the model or
@@ -112,31 +109,31 @@ norm_params.npz.
 
 | Instance | true\_cls | n2v label | CROWN verdict | Bucket | Min margin | Runtime |
 |---|---|---|---|---|---|---|
-| prop_000 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +7.2263 | 1.93 s |
-| prop_001 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +5.9994 | 1.90 s |
-| prop_002 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.7675 | 1.96 s |
-| prop_003 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +5.7513 | 1.95 s |
-| prop_004 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +5.0386 | 1.96 s |
-| prop_005 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.2479 | 1.99 s |
-| prop_006 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.9860 | 2.00 s |
-| prop_007 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.9419 | 1.98 s |
-| prop_008 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1158 | 1.99 s |
-| prop_009 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3639 | 1.88 s |
-| prop_010 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.8833 | 1.98 s |
-| prop_011 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.2533 | 1.98 s |
-| prop_012 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.5811 | 2.01 s |
-| prop_013 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.1085 | 2.01 s |
-| prop_014 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4426 | 1.88 s |
-| prop_015 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4863 | 2.01 s |
-| prop_016 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.8185 | 2.08 s |
-| prop_017 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +4.1918 | 2.01 s |
-| prop_018 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.9785 | 2.03 s |
-| prop_019 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3510 | 1.99 s |
-| prop_020 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.9908 | 2.02 s |
-| prop_021 | 4 | UNSAT | CERTIFIED | **CONFIRMED** | +3.7600 | 2.07 s |
-| prop_022 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +4.2516 | 1.92 s |
-| prop_023 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +3.9355 | 2.08 s |
-| prop_024 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +3.1878 | 2.02 s |
+| prop_000 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +6.8576 | 1.77 s |
+| prop_001 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +6.9555 | 2.01 s |
+| prop_002 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +6.8011 | 1.82 s |
+| prop_003 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +7.0680 | 1.99 s |
+| prop_004 | 0 | UNSAT | CERTIFIED | **CONFIRMED** | +7.0132 | 1.95 s |
+| prop_005 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.3567 | 1.94 s |
+| prop_006 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.3502 | 1.85 s |
+| prop_007 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.1866 | 2.02 s |
+| prop_008 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.2072 | 1.95 s |
+| prop_009 | 1 | UNSAT | CERTIFIED | **CONFIRMED** | +6.1178 | 1.83 s |
+| prop_010 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +5.5616 | 2.02 s |
+| prop_011 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +5.3813 | 1.97 s |
+| prop_012 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +5.7638 | 1.93 s |
+| prop_013 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +4.9907 | 1.82 s |
+| prop_014 | 7 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1819 | 2.01 s |
+| prop_015 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1238 | 1.92 s |
+| prop_016 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.2800 | 1.96 s |
+| prop_017 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.3103 | 1.83 s |
+| prop_018 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.0207 | 2.03 s |
+| prop_019 | 6 | UNSAT | CERTIFIED | **CONFIRMED** | +5.1851 | 1.96 s |
+| prop_020 | 3 | UNSAT | CERTIFIED | **CONFIRMED** | +5.0012 | 1.93 s |
+| prop_021 | 5 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3857 | 1.84 s |
+| prop_022 | 2 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3168 | 2.02 s |
+| prop_023 | 3 | UNSAT | CERTIFIED | **CONFIRMED** | +4.3658 | 1.94 s |
+| prop_024 | 3 | UNSAT | CERTIFIED | **CONFIRMED** | +4.4587 | 1.96 s |
 
 **Min margin** = min over all j ≠ true_cls of `(lb[true_cls] − ub[j])`. A positive value
 means CROWN proves the true class lower bound exceeds every other class upper bound by that
@@ -152,7 +149,12 @@ amount. No instance is even close to zero.
 | INCONCLUSIVE | 0 / 25 |
 | CONTRADICTED | 0 / 25 |
 
-Total wall time: ~50 s (2.0 s/instance + 7.9 s model init).
+| Statistic | Value |
+|---|---|
+| Min margin | +4.3168 (prop_022, cls=2) |
+| Median margin | +5.3813 (prop_011, cls=7) |
+| Max margin | +7.0680 (prop_003, cls=0) |
+| Total wall time | ~56 s (~2.0 s/instance + ~6 s model init) |
 
 ---
 
@@ -161,8 +163,8 @@ Total wall time: ~50 s (2.0 s/instance + 7.9 s model init).
 **The 25 UNSAT labels are independently validated.**
 
 auto_LiRPA's CROWN method certifies all 25 instances at ε = 1/255 ≈ 0.003922 on
-`lstm_psMNIST_h8.onnx`. The minimum certification margin across all instances is +3.188 logit
-units (prop_024, cls=7).
+`lstm_psMNIST_h8.onnx`. The minimum certification margin across all instances is +4.317 logit
+units (prop_022, cls=2).
 
 This is a comfortable safety margin above zero — no instance is borderline. The benchmark was
 designed by selecting only IBP-certifiable instances on the h8 model under IBP-regularised
